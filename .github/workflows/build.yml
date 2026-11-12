@@ -175,9 +175,24 @@ jobs:
       - name: Ключ подписи (если задан в секретах)
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: |
           if [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > app-src/app/release.keystore
+            # Проверяем оба секрета заранее, чтобы ошибка была понятной, а не из глубины Gradle.
+            if ! printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]' | base64 -d > app-src/app/release.keystore 2>/dev/null; then
+              echo "::error::Секрет KEYSTORE_B64 испорчен: это не base64. Вставьте его заново (base64 -i izi.p12 | pbcopy)."
+              exit 1
+            fi
+            PASS=$(printf '%s' "$LOCAL_PROPERTIES" | tr -d '[:space:]' | base64 -d 2>/dev/null | sed -n 's/^KEYSTORE_PASS=//p' | head -1 || true)
+            if [ -z "$PASS" ]; then
+              echo "::error::Секрет LOCAL_PROPERTIES испорчен: в нём нет строки KEYSTORE_PASS. Скорее всего, вставлено не то, что было в буфере. Вставьте его заново."
+              exit 1
+            fi
+            echo "::add-mask::$PASS"
+            if ! keytool -list -keystore app-src/app/release.keystore -storepass "$PASS" >/dev/null 2>&1; then
+              echo "::error::Пароль из LOCAL_PROPERTIES не подходит к ключу из KEYSTORE_B64. Вставьте заново оба секрета."
+              exit 1
+            fi
             echo "Подпись: постоянный ключ"
           else
             echo "Подпись: отладочная (пробная сборка)"

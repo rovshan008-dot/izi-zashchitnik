@@ -22,7 +22,8 @@ fun getProps(propName: String): String {
     val propsInEnv = System.getenv("LOCAL_PROPERTIES")
     if (propsInEnv != null) {
         val props = Properties()
-        props.load(ByteArrayInputStream(Base64.getDecoder().decode(propsInEnv)))
+        // MIME-декодер не спотыкается о пробелы и переводы строк, попавшие в секрет при вставке.
+        props.load(ByteArrayInputStream(Base64.getMimeDecoder().decode(propsInEnv)))
         val value = props.getProperty(propName)
         if (value != null) {
             return value
