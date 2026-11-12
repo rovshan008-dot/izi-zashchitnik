@@ -1,0 +1,165 @@
+name: Сборка APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Версия ядра sing-box, из которой собирается libbox. Менять только осознанно.
+  SING_BOX_REF: v1.14.4
+  GO_VERSION: "1.26.10"
+
+jobs:
+  libbox:
+    name: Ядро (${{ matrix.go_arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go_arch: [arm, arm64]
+    steps:
+      - name: Исходники sing-box
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          repository: SagerNet/sing-box
+          ref: ${{ env.SING_BOX_REF }}
+          fetch-depth: 1
+      - name: Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: Кэш модулей Go
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: go-mod-${{ env.SING_BOX_REF }}-${{ hashFiles('go.sum') }}
+      - name: Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r28
+      - name: OpenJDK 17
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Сборка libbox
+        run: |
+          git tag "$SING_BOX_REF" -f
+          make lib_install
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          go run ./cmd/internal/build_libbox -target android -platform android/${{ matrix.go_arch }}
+          mkdir -p dist/${{ matrix.go_arch }}
+          mv libbox.aar libbox-legacy.aar dist/${{ matrix.go_arch }}
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+      - name: Сохранить libbox
+        uses: actions/upload-artifact@v4
+        with:
+          name: libbox-android-${{ matrix.go_arch }}
+          path: dist
+          compression-level: 0
+          retention-days: 3
+
+  apk:
+    name: APK
+    runs-on: ubuntu-latest
+    needs: libbox
+    steps:
+      - name: Исходники приложения
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          path: app-src
+      - name: Исходники sing-box (инструмент склейки)
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          repository: SagerNet/sing-box
+          ref: ${{ env.SING_BOX_REF }}
+          fetch-depth: 1
+          path: core
+      - name: Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r28
+      - name: OpenJDK 17
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Скачать libbox
+        uses: actions/download-artifact@v4
+        with:
+          pattern: libbox-android-*
+          path: core/libbox-inputs
+          merge-multiple: true
+      - name: Склеить libbox
+        working-directory: core
+        run: |
+          ls -R libbox-inputs
+          go run ./cmd/internal/merge_aar -output libbox.aar libbox-inputs/*/libbox.aar
+          mkdir -p ../app-src/app/libs
+          cp libbox.aar ../app-src/app/libs/
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+        with:
+          cache-provider: basic
+      - name: Ключ подписи (если задан в секретах)
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > app-src/app/release.keystore
+            echo "Подпись: постоянный ключ"
+          else
+            echo "Подпись: отладочная (пробная сборка)"
+          fi
+      - name: Сборка
+        working-directory: app-src
+        run: ./gradlew --build-cache :app:assembleOtherRelease
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+      - name: Что получилось
+        working-directory: app-src
+        run: |
+          ls -la app/build/outputs/apk/other/release/
+          AAPT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/aapt2
+          APK=$(ls app/build/outputs/apk/other/release/*universal*.apk | head -1)
+          "$AAPT" dump badging "$APK" | grep -E "^package:|application-label:|uses-permission:|native-code|sdkVersion|targetSdkVersion"
+          sha256sum app/build/outputs/apk/other/release/*.apk
+      - name: Сохранить APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: izi-zashchitnik-apk
+          path: app-src/app/build/outputs/apk/other/release/*.apk
+          retention-days: 14
+      - name: Выложить пробную сборку
+        working-directory: app-src
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="build-${{ github.run_number }}"
+          gh release create "$TAG" \
+            --prerelease \
+            --target "${{ github.sha }}" \
+            --title "Пробная сборка ${{ github.run_number }}" \
+            --notes "Автоматическая пробная сборка. Ядро sing-box ${SING_BOX_REF}. Не для раздачи клиентам." \
+            app/build/outputs/apk/other/release/*universal*.apk \
+            app/build/outputs/apk/other/release/*arm64-v8a*.apk
