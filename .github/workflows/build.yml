@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths-ignore:
       - "**.md"
+      - "server/**"
+      - ".github/**"
 
 permissions:
   contents: write
