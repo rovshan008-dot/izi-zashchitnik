@@ -6,6 +6,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -20,6 +22,8 @@ import io.nekohasekai.sfa.compose.screen.dashboard.DashboardScreen
 import io.nekohasekai.sfa.compose.screen.dashboard.DashboardViewModel
 import io.nekohasekai.sfa.compose.screen.dashboard.GroupsCard
 import io.nekohasekai.sfa.compose.screen.dashboard.groups.GroupsViewModel
+import io.nekohasekai.sfa.compose.screen.home.IziHomeScreen
+import io.nekohasekai.sfa.compose.screen.home.QuickProfileAdder
 import io.nekohasekai.sfa.compose.screen.log.HookLogScreen
 import io.nekohasekai.sfa.compose.screen.log.LogScreen
 import io.nekohasekai.sfa.compose.screen.log.LogViewModel
@@ -107,13 +111,38 @@ fun NavHost(
     usbIPStatusViewModel: USBIPStatusViewModel? = null,
     openConnectStatusViewModel: OpenConnectStatusViewModel? = null,
     openVPNStatusViewModel: OpenVPNStatusViewModel? = null,
+    iziAdding: Boolean = false,
+    onIziAdd: (QuickProfileAdder.Link) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     androidx.navigation.compose.NavHost(
         navController = navController,
-        startDestination = Screen.Dashboard.route,
+        startDestination = IziRoutes.Home,
         modifier = modifier,
     ) {
+        // Изи Защитник: простой главный экран.
+        composable(IziRoutes.Home) {
+            if (dashboardViewModel != null) {
+                val homeUiState by dashboardViewModel.uiState.collectAsState()
+                IziHomeScreen(
+                    serviceStatus = serviceStatus,
+                    uiState = homeUiState,
+                    isAdding = iziAdding,
+                    onToggleService = dashboardViewModel::toggleService,
+                    onAdd = onIziAdd,
+                    onSelectProfile = dashboardViewModel::selectProfile,
+                    onUpdateProfile = dashboardViewModel::updateProfile,
+                    onRenameProfile = dashboardViewModel::renameProfile,
+                    onRemoveProfile = dashboardViewModel::removeProfile,
+                    onOpenMaster = {
+                        navController.navigate(Screen.Dashboard.route) {
+                            launchSingleTop = true
+                        }
+                    },
+                )
+            }
+        }
+
         composable(Screen.Dashboard.route) {
             if (dashboardViewModel != null) {
                 DashboardScreen(

@@ -116,6 +116,7 @@ import io.nekohasekai.sfa.compose.component.SnackbarHost
 import io.nekohasekai.sfa.compose.component.UpdateAvailableDialog
 import io.nekohasekai.sfa.compose.component.UptimeText
 import io.nekohasekai.sfa.compose.model.Connection
+import io.nekohasekai.sfa.compose.navigation.IziRoutes
 import io.nekohasekai.sfa.compose.navigation.NavHost
 import io.nekohasekai.sfa.compose.navigation.NewProfileArgs
 import io.nekohasekai.sfa.compose.navigation.ProfileRoutes
@@ -128,6 +129,7 @@ import io.nekohasekai.sfa.compose.screen.connections.ConnectionsViewModel
 import io.nekohasekai.sfa.compose.screen.dashboard.DashboardViewModel
 import io.nekohasekai.sfa.compose.screen.dashboard.GroupsCard
 import io.nekohasekai.sfa.compose.screen.dashboard.groups.GroupsViewModel
+import io.nekohasekai.sfa.compose.screen.home.QuickProfileAdder
 import io.nekohasekai.sfa.compose.screen.log.LogViewModel
 import io.nekohasekai.sfa.compose.screen.tools.OpenConnectStatusViewModel
 import io.nekohasekai.sfa.compose.screen.tools.OpenVPNStatusViewModel
@@ -176,6 +178,9 @@ class MainActivity :
     private var newProfileArgs by mutableStateOf(NewProfileArgs())
     private var parseImportLocalProfileJob: Job? = null
     private var pendingIntentErrorMessage by mutableStateOf<String?>(null)
+
+    // Изи Защитник: ссылка, пришедшая по кнопке с сайта и ждущая подтверждения.
+    private var pendingQuickAdd by mutableStateOf<QuickProfileAdder.Link?>(null)
 
     private val notificationPermissionLauncher =
         registerForActivityResult(
@@ -279,6 +284,18 @@ class MainActivity :
                 }
                 return
             }
+        }
+        if (uri.scheme.equals(QuickProfileAdder.SCHEME, ignoreCase = true)) {
+            // Кнопка с сайта: izi-zashchitnik://add?url=<ссылка>&name=<название>
+            val link = QuickProfileAdder.parseLink(uri.toString())
+            if (link != null) {
+                pendingQuickAdd = link
+            } else {
+                pendingIntentErrorMessage = getString(R.string.izi_link_broken)
+            }
+            // Ссылка обработана: при повороте экрана она не должна сработать второй раз.
+            intent.data = null
+            return
         }
         if (intent.action == Action.OPEN_URL) {
             launchCustomTab(uri.toString())
@@ -636,7 +653,9 @@ class MainActivity :
         }
 
         // Handle update check prompt dialog (shown only once on first launch)
-        var showUpdateCheckPrompt by remember { mutableStateOf(!Settings.updateCheckPrompted) }
+        // Изи Защитник: вопрос про обновления при первом запуске не показываем,
+        // проверка обновлений включается в «Для мастера» → Настройки.
+        var showUpdateCheckPrompt by remember { mutableStateOf(false) }
         if (showUpdateCheckPrompt) {
             AlertDialog(
                 onDismissRequest = {
@@ -788,6 +807,71 @@ class MainActivity :
             dashboardViewModel.updateServiceStatus(currentServiceStatus)
         }
 
+        // Изи Защитник: добавление подключения одной кнопкой (буфер обмена или кнопка с сайта).
+        var quickAddInProgress by remember { mutableStateOf(false) }
+        val quickAdd: (QuickProfileAdder.Link) -> Unit = { link ->
+            if (!quickAddInProgress) {
+                quickAddInProgress = true
+                scope.launch {
+                    val result = try {
+                        QuickProfileAdder.add(this@MainActivity, link)
+                    } finally {
+                        quickAddInProgress = false
+                    }
+                    when (result) {
+                        is QuickProfileAdder.Result.Added -> {
+                            dashboardViewModel.selectProfile(result.profile.id)
+                            scope.launch {
+                                snackbarHostState.showSnackbar(getString(R.string.izi_added, result.profile.name))
+                            }
+                        }
+
+                        is QuickProfileAdder.Result.Refreshed -> {
+                            dashboardViewModel.selectProfile(result.profile.id)
+                            scope.launch {
+                                snackbarHostState.showSnackbar(getString(R.string.izi_refreshed, result.profile.name))
+                            }
+                        }
+
+                        is QuickProfileAdder.Result.Failed -> {
+                            errorMessage = result.message
+                            showErrorDialog = true
+                        }
+                    }
+                }
+            }
+        }
+
+        pendingQuickAdd?.let { link ->
+            AlertDialog(
+                onDismissRequest = { pendingQuickAdd = null },
+                title = { Text(stringResource(R.string.izi_add_confirm_title)) },
+                text = {
+                    val name = link.name
+                    Text(
+                        if (name != null) {
+                            stringResource(R.string.izi_add_confirm_message_named, name, link.host)
+                        } else {
+                            stringResource(R.string.izi_add_confirm_message, link.host)
+                        },
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        pendingQuickAdd = null
+                        quickAdd(link)
+                    }) {
+                        Text(stringResource(R.string.izi_add))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingQuickAdd = null }) {
+                        Text(stringResource(R.string.izi_cancel))
+                    }
+                },
+            )
+        }
+
         if (dashboardUiState.showDeprecatedDialog && dashboardUiState.deprecatedNotes.isNotEmpty()) {
             val note = dashboardUiState.deprecatedNotes.first()
             AlertDialog(
@@ -832,7 +916,9 @@ class MainActivity :
         val isGroupsRoute = currentRootRoute == Screen.Groups.route
         val isLogRoute = currentRootRoute == Screen.Log.route
 
-        val isSubScreen = isSettingsSubScreen || isToolsSubScreen || isConnectionsDetail || isProfileRoute
+        // Изи Защитник: на простом главном экране нет ни нижнего меню, ни плавающих кнопок.
+        val isHome = currentRoute == null || currentRoute == IziRoutes.Home
+        val isSubScreen = isHome || isSettingsSubScreen || isToolsSubScreen || isConnectionsDetail || isProfileRoute
         // Get LogViewModel instance if we're on the Log screen
         val logViewModel: LogViewModel? =
             if (isLogRoute) {
@@ -943,6 +1029,7 @@ class MainActivity :
 
         val allowedRoutes =
             buildSet {
+                add(IziRoutes.Home)
                 add(Screen.Dashboard.route)
                 add(Screen.Log.route)
                 add(Screen.Tools.route)
@@ -1045,6 +1132,8 @@ class MainActivity :
                         usbIPStatusViewModel = usbIPStatusViewModel,
                         openConnectStatusViewModel = openConnectStatusViewModel,
                         openVPNStatusViewModel = openVPNStatusViewModel,
+                        iziAdding = quickAddInProgress,
+                        onIziAdd = quickAdd,
                         modifier = Modifier.fillMaxSize(),
                     )
                     if (!useNavigationRail) {
@@ -1241,44 +1330,47 @@ class MainActivity :
         CompositionLocalProvider(LocalTopBarController provides topBarController) {
             if (useNavigationRail) {
                 Row(modifier = Modifier.fillMaxSize()) {
-                    Surface(tonalElevation = 1.dp) {
-                        NavigationRail(
-                            modifier = Modifier.fillMaxHeight(),
-                        ) {
-                            val hasUpdate by UpdateState.hasUpdate
-                            railScreens.forEach { screen ->
-                                val selected = currentRootRoute == screen.route
+                    // Изи Защитник: на простом главном экране боковое меню не показываем.
+                    if (!isHome) {
+                        Surface(tonalElevation = 1.dp) {
+                            NavigationRail(
+                                modifier = Modifier.fillMaxHeight(),
+                            ) {
+                                val hasUpdate by UpdateState.hasUpdate
+                                railScreens.forEach { screen ->
+                                    val selected = currentRootRoute == screen.route
 
-                                NavigationRailItem(
-                                    icon = {
-                                        if (screen == Screen.Settings && hasUpdate) {
-                                            BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.primary) }) {
+                                    NavigationRailItem(
+                                        icon = {
+                                            if (screen == Screen.Settings && hasUpdate) {
+                                                BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.primary) }) {
+                                                    Icon(screen.icon, contentDescription = null)
+                                                }
+                                            } else if (screen == Screen.Tools && taildropFailedCount > 0) {
+                                                BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.error) { Text("!") } }) {
+                                                    Icon(screen.icon, contentDescription = null)
+                                                }
+                                            } else if (screen == Screen.Tools && toolsUnreadCount > 0) {
+                                                BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.error) { Text("$toolsUnreadCount") } }) {
+                                                    Icon(screen.icon, contentDescription = null)
+                                                }
+                                            } else {
                                                 Icon(screen.icon, contentDescription = null)
                                             }
-                                        } else if (screen == Screen.Tools && taildropFailedCount > 0) {
-                                            BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.error) { Text("!") } }) {
-                                                Icon(screen.icon, contentDescription = null)
+                                        },
+                                        label = { Text(stringResource(screen.titleRes)) },
+                                        selected = selected,
+                                        onClick = {
+                                            navController.navigate(screen.route) {
+                                                popUpTo(navController.graph.findStartDestination().id) {
+                                                    saveState = true
+                                                }
+                                                launchSingleTop = true
+                                                restoreState = true
                                             }
-                                        } else if (screen == Screen.Tools && toolsUnreadCount > 0) {
-                                            BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.error) { Text("$toolsUnreadCount") } }) {
-                                                Icon(screen.icon, contentDescription = null)
-                                            }
-                                        } else {
-                                            Icon(screen.icon, contentDescription = null)
-                                        }
-                                    },
-                                    label = { Text(stringResource(screen.titleRes)) },
-                                    selected = selected,
-                                    onClick = {
-                                        navController.navigate(screen.route) {
-                                            popUpTo(navController.graph.findStartDestination().id) {
-                                                saveState = true
-                                            }
-                                            launchSingleTop = true
-                                            restoreState = true
-                                        }
-                                    },
-                                )
+                                        },
+                                    )
+                                }
                             }
                         }
                     }

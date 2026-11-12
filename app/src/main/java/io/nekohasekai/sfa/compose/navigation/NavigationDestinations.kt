@@ -49,6 +49,11 @@ sealed class Screen(val route: String, @StringRes val titleRes: Int, val icon: I
     )
 }
 
+/** Изи Защитник: простой главный экран. Всё остальное открывается из раздела «Для мастера». */
+object IziRoutes {
+    const val Home = "home"
+}
+
 val bottomNavigationScreens =
     listOf(
         Screen.Dashboard,

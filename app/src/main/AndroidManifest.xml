@@ -77,6 +77,19 @@
 
             </intent-filter>
 
+            <!-- Изи Защитник: кнопка «Добавить» на сайте, izi-zashchitnik://add?url=<ссылка>&name=<название> -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="add"
+                    android:scheme="izi-zashchitnik" />
+
+            </intent-filter>
+
             <intent-filter android:priority="999">
                 <action android:name="android.intent.action.VIEW" />
 

@@ -332,6 +332,51 @@ class DashboardViewModel :
         }
     }
 
+    /**
+     * Изи Защитник: удаление с главного экрана. Если удалён выбранный профиль,
+     * выбирается первый из оставшихся, а если профилей не осталось, защита выключается.
+     */
+    fun removeProfile(profile: Profile) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val wasSelected = Settings.selectedProfile == profile.id
+                if (wasSelected) {
+                    // Новый выбор ставим до удаления, чтобы экран сразу показал правильное подключение.
+                    val next = ProfileManager.list().firstOrNull { it.id != profile.id }
+                    Settings.selectedProfile = next?.id ?: -1L
+                }
+                ProfileManager.delete(profile)
+                runCatching { File(profile.typed.path).delete() }
+                if (wasSelected) {
+                    if (Settings.selectedProfile != -1L) {
+                        applySelectedProfile()
+                    } else if (_serviceStatus.value == Status.Started || _serviceStatus.value == Status.Starting) {
+                        BoxService.stop()
+                    }
+                }
+            } catch (e: Exception) {
+                sendError(e)
+            } finally {
+                loadProfiles()
+            }
+        }
+    }
+
+    /** Изи Защитник: переименование профиля с главного экрана. */
+    fun renameProfile(profile: Profile, newName: String) {
+        val name = newName.trim()
+        if (name.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val stored = ProfileManager.get(profile.id) ?: return@launch
+                stored.name = name
+                ProfileManager.update(stored)
+            } catch (e: Exception) {
+                sendError(e)
+            }
+        }
+    }
+
     fun shareProfile(profile: Profile) {
         // Handled directly in ProfilesCard
     }

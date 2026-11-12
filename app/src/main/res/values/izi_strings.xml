@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Изи Защитник: тексты простого главного экрана. Приложение русскоязычное, поэтому без переводов. -->
+<resources>
+  <string name="izi_status_off" translatable="false">Защита выключена</string>
+  <string name="izi_status_starting" translatable="false">Включаем…</string>
+  <string name="izi_status_on" translatable="false">Защита включена</string>
+  <string name="izi_status_stopping" translatable="false">Выключаем…</string>
+  <string name="izi_status_no_profile" translatable="false">Сначала добавьте подключение</string>
+
+  <string name="izi_button_turn_on" translatable="false">Включить</string>
+  <string name="izi_button_turn_off" translatable="false">Выключить</string>
+  <string name="izi_button_wait" translatable="false">Подождите</string>
+
+  <string name="izi_profiles_title" translatable="false">Мои подключения</string>
+  <string name="izi_profiles_empty" translatable="false">Скопируйте ссылку, которую вам прислали, и нажмите «Добавить».</string>
+  <string name="izi_profile_default_name" translatable="false">Подключение %1$d</string>
+  <string name="izi_profile_updated_at" translatable="false">Обновлено %1$s</string>
+  <string name="izi_profile_menu" translatable="false">Действия</string>
+  <string name="izi_profile_refresh" translatable="false">Обновить</string>
+  <string name="izi_profile_rename" translatable="false">Переименовать</string>
+  <string name="izi_profile_remove" translatable="false">Удалить</string>
+  <string name="izi_profile_remove_title" translatable="false">Удалить подключение?</string>
+  <string name="izi_profile_remove_message" translatable="false">«%1$s» будет удалено с этого телефона. Его можно добавить заново по той же ссылке.</string>
+  <string name="izi_profile_name_label" translatable="false">Название</string>
+  <string name="izi_save" translatable="false">Сохранить</string>
+  <string name="izi_cancel" translatable="false">Отмена</string>
+
+  <string name="izi_add" translatable="false">Добавить</string>
+  <string name="izi_adding" translatable="false">Добавляем…</string>
+  <string name="izi_add_dialog_title" translatable="false">Добавить по ссылке</string>
+  <string name="izi_add_dialog_message" translatable="false">В буфере обмена нет ссылки. Скопируйте ссылку, которую вам прислали, и вставьте её сюда.</string>
+  <string name="izi_add_dialog_label" translatable="false">Ссылка</string>
+  <string name="izi_add_dialog_paste" translatable="false">Вставить</string>
+  <string name="izi_add_confirm_title" translatable="false">Добавить подключение?</string>
+  <string name="izi_add_confirm_message" translatable="false">Сервер: %1$s</string>
+  <string name="izi_add_confirm_message_named" translatable="false">«%1$s»\nСервер: %2$s</string>
+  <string name="izi_added" translatable="false">Добавлено: %1$s</string>
+  <string name="izi_refreshed" translatable="false">Уже было добавлено, обновили: %1$s</string>
+  <string name="izi_add_failed" translatable="false">Не получилось добавить по ссылке\n%1$s\n\nПроверьте, что скопирована ссылка на подключение и что есть интернет.\n\nПодробности: %2$s</string>
+  <string name="izi_link_broken" translatable="false">В ссылке с сайта нет адреса подключения. Попробуйте скопировать ссылку и нажать «Добавить».</string>
+
+  <string name="izi_master" translatable="false">Для мастера</string>
+  <string name="izi_version" translatable="false">Сборка %1$d · версия %2$s</string>
+</resources>

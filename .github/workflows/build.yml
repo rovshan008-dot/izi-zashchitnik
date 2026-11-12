@@ -3,7 +3,8 @@ name: Сборка APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    # main — основная ветка; в ветках sborka-* готовится следующая сборка.
+    branches: [main, "sborka-*"]
     paths-ignore:
       - "**.md"
       - "server/**"
@@ -22,48 +23,97 @@ env:
   GO_VERSION: "1.26.10"
 
 jobs:
+  plan:
+    # Номер сборки берётся из VERSION_CODE в version.properties: одна выложенная сборка на номер.
+    # Если сборка с таким номером уже выложена, повторная отправка кода ничего не пересобирает.
+    name: Нужна ли сборка
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+      tag: ${{ steps.check.outputs.tag }}
+      code: ${{ steps.check.outputs.code }}
+    steps:
+      - name: Исходники приложения
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      - name: Проверка
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          CODE=$(grep '^VERSION_CODE=' version.properties | cut -d= -f2 | tr -d '[:space:]')
+          TAG="build-$CODE"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = "push" ] && gh release view "$TAG" >/dev/null 2>&1; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "Сборка $TAG уже выложена — пересобирать нечего. Для новой сборки увеличьте VERSION_CODE." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "Собираю $TAG." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   libbox:
     name: Ядро (${{ matrix.go_arch }})
     runs-on: ubuntu-latest
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
     strategy:
       fail-fast: false
       matrix:
         go_arch: [arm, arm64]
     steps:
+      # Ядро зависит только от версии sing-box и Go, поэтому готовое ядро хранится в кэше
+      # и пересобирается лишь при смене одной из этих версий.
+      - name: Готовое ядро из кэша
+        id: core-cache
+        uses: actions/cache@v4
+        with:
+          path: dist
+          key: libbox-${{ env.SING_BOX_REF }}-go${{ env.GO_VERSION }}-ndk-r28-${{ matrix.go_arch }}
       - name: Исходники sing-box
+        if: steps.core-cache.outputs.cache-hit != 'true'
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
         with:
           repository: SagerNet/sing-box
           ref: ${{ env.SING_BOX_REF }}
           fetch-depth: 1
+          path: core
       - name: Go
+        if: steps.core-cache.outputs.cache-hit != 'true'
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
       - name: Кэш модулей Go
+        if: steps.core-cache.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
-          key: go-mod-${{ env.SING_BOX_REF }}-${{ hashFiles('go.sum') }}
+          key: go-mod-${{ env.SING_BOX_REF }}-${{ hashFiles('core/go.sum') }}
       - name: Android NDK
+        if: steps.core-cache.outputs.cache-hit != 'true'
         id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r28
       - name: OpenJDK 17
+        if: steps.core-cache.outputs.cache-hit != 'true'
         uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
         with:
           distribution: temurin
           java-version: 17
       - name: Сборка libbox
+        if: steps.core-cache.outputs.cache-hit != 'true'
+        working-directory: core
         run: |
           git tag "$SING_BOX_REF" -f
           make lib_install
           export PATH="$PATH:$(go env GOPATH)/bin"
           go run ./cmd/internal/build_libbox -target android -platform android/${{ matrix.go_arch }}
-          mkdir -p dist/${{ matrix.go_arch }}
-          mv libbox.aar libbox-legacy.aar dist/${{ matrix.go_arch }}
+          mkdir -p ../dist/${{ matrix.go_arch }}
+          mv libbox.aar libbox-legacy.aar ../dist/${{ matrix.go_arch }}
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
       - name: Сохранить libbox
@@ -77,7 +127,7 @@ jobs:
   apk:
     name: APK
     runs-on: ubuntu-latest
-    needs: libbox
+    needs: [plan, libbox]
     steps:
       - name: Исходники приложения
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
@@ -156,12 +206,19 @@ jobs:
         working-directory: app-src
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          CODE: ${{ needs.plan.outputs.code }}
         run: |
-          TAG="build-${{ github.run_number }}"
+          TITLE="Пробная сборка $CODE"
+          # Повторная сборка того же номера (запуск вручную) не затирает уже выложенную.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            TAG="$TAG-${{ github.run_number }}"
+            TITLE="$TITLE (повтор ${{ github.run_number }})"
+          fi
           gh release create "$TAG" \
             --prerelease \
             --target "${{ github.sha }}" \
-            --title "Пробная сборка ${{ github.run_number }}" \
+            --title "$TITLE" \
             --notes "Автоматическая пробная сборка. Ядро sing-box ${SING_BOX_REF}. Не для раздачи клиентам." \
             app/build/outputs/apk/other/release/*universal*.apk \
             app/build/outputs/apk/other/release/*arm64-v8a*.apk
