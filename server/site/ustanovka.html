@@ -7,7 +7,7 @@
     https://ВАШ-САЙТ/ustanovka.html?url=http://191.217.231.17/ТОКЕН&name=Моя%20защита
   (name необязателен; без url страница тоже работает, просто просит скопировать ссылку вручную).
 
-  Что менять при новой сборке: адрес файла приложения в APK_URL ниже.
+  Файл приложения (izi-zashchitnik.apk) должен лежать рядом со страницей: его кладёт izi_site_patch.py.
 -->
 <html lang="ru">
 <head>
@@ -86,8 +86,9 @@
 </main>
 <script>
   (function () {
-    // Файл приложения. Менять при каждой новой сборке.
-    var APK_URL = 'https://github.com/rovshan008-dot/izi-zashchitnik/releases/download/build-3/IziZashchitnik-0.2.1-universal.apk';
+    // Файл приложения лежит рядом с этой страницей. Его кладёт и обновляет izi_site_patch.py
+    // (команды apply и apk), поэтому при новой сборке саму страницу менять не нужно.
+    var APK_URL = 'izi-zashchitnik.apk';
     var APK_SIZE = '67 МБ';
 
     var params = new URLSearchParams(location.search);
