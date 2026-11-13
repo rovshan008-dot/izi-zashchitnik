@@ -40,6 +40,10 @@ android {
             storePassword = secret("KEYSTORE_PASS")
             keyAlias = secret("ALIAS_NAME")
             keyPassword = secret("ALIAS_PASS")
+            // Старая подпись v1 нужна установщикам Realme/OPPO/Xiaomi, иначе «не удалось проанализировать APK»
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
         }
     }
 
