@@ -8,6 +8,8 @@ on:
     paths-ignore:
       - "**.md"
       - "server/**"
+      - "assistant/**"
+      - "windows/**"
       - ".github/**"
 
 permissions:

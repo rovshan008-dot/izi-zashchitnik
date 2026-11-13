@@ -1,0 +1,91 @@
+name: Сборка «Изи» (помощник)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "pomoshnik-*"]
+    paths:
+      - "assistant/**"
+      - ".github/workflows/assistant.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: assistant-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: APK помощника
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: assistant
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      - name: Номер сборки
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          CODE=$(grep '^VERSION_CODE=' version.properties | cut -d= -f2 | tr -d '[:space:]')
+          NAME=$(grep '^VERSION_NAME=' version.properties | cut -d= -f2 | tr -d '[:space:]')
+          TAG="izi-$NAME"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = "push" ] && gh release view "$TAG" >/dev/null 2>&1; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "Сборка $TAG уже выложена. Для новой увеличьте VERSION_CODE и VERSION_NAME." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-java@v4
+        if: steps.ver.outputs.build == 'true'
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.ver.outputs.build == 'true'
+        with:
+          gradle-version: "8.10.2"
+      - name: Ключ подписи
+        if: steps.ver.outputs.build == 'true'
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then echo "::error::Нет секрета KEYSTORE_B64"; exit 1; fi
+          printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]' | base64 -d > app/release.keystore
+          PASS=$(printf '%s' "$LOCAL_PROPERTIES" | tr -d '[:space:]' | base64 -d 2>/dev/null | sed -n 's/^KEYSTORE_PASS=//p' | head -1 || true)
+          echo "::add-mask::$PASS"
+          keytool -list -keystore app/release.keystore -storepass "$PASS" >/dev/null
+      - name: Сборка
+        if: steps.ver.outputs.build == 'true'
+        env:
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+        run: gradle --no-daemon :app:assembleRelease
+      - name: Что получилось
+        if: steps.ver.outputs.build == 'true'
+        run: |
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/aapt2" dump badging "$APK" | grep -E "^package:|application-label:|uses-permission:|sdkVersion|targetSdkVersion"
+          "$BT/apksigner" verify --print-certs "$APK" | grep -E "SHA-256|DN" || true
+          ls -la "$APK"
+          cp "$APK" "Izi-${{ steps.ver.outputs.name }}.apk"
+      - name: Выложить
+        if: steps.ver.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          NAME: ${{ steps.ver.outputs.name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then TAG="$TAG-r${{ github.run_number }}"; fi
+          gh release create "$TAG" "Izi-$NAME.apk" \
+            --prerelease --latest=false \
+            --target "${{ github.sha }}" \
+            --title "Изи (помощник) $NAME" \
+            --notes "Голосовой помощник Изи для Android. Установите Izi-$NAME.apk."
