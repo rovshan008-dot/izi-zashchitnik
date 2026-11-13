@@ -84,6 +84,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -102,7 +113,7 @@ private val Dim = Color(0xFF8C88A0)
 
 enum class Phase { Idle, Listening, Thinking, Speaking }
 
-data class Msg(val me: Boolean, val text: String, val image: String? = null)
+data class Msg(val me: Boolean, val text: String, val image: String? = null, val photos: List<Uri> = emptyList())
 
 class MainActivity : ComponentActivity() {
 
@@ -123,6 +134,7 @@ class MainActivity : ComponentActivity() {
     private var pendingWake = false
     private var wakeSession = false
     private var lastAction = 0L
+    private var pendingAsk: PhoneActions.Ask? = null
     private val messages = mutableStateListOf<Msg>()
 
     private var useServerStt = false
@@ -357,18 +369,28 @@ class MainActivity : ComponentActivity() {
         val t = text.trim()
         if (t.isEmpty()) { phase = Phase.Idle; return }
         if (echo) messages += Msg(true, t)
-        if (PhoneActions.isStop(PhoneActions.normalize(t))) { speaker.stop(); phase = Phase.Idle; return }
+        if (PhoneActions.isStop(PhoneActions.normalize(t))) { pendingAsk = null; speaker.stop(); phase = Phase.Idle; return }
+
+        // ответ на вопрос Изи («Отправить?» — «да»)
+        val ask = pendingAsk
+        pendingAsk = null
+        if (ask != null) {
+            val r = try { ask.handler(this, t) } catch (e: Exception) { null }
+            if (r != null) { showLocal(r, t); return }
+        }
 
         val local = try { PhoneActions.handle(this, t) } catch (e: Exception) { null }
-        if (local != null) {
-            if (local.needPermission != null) {
-                pendingText = t
-                askPerms.launch(arrayOf(local.needPermission))
-            }
-            say(local.say)
-            return
-        }
+        if (local != null) { showLocal(local, t); return }
         askBrain(t)
+    }
+
+    private fun showLocal(local: PhoneActions.Local, original: String) {
+        if (local.needPermission != null) {
+            pendingText = original
+            askPerms.launch(arrayOf(local.needPermission))
+        }
+        pendingAsk = local.ask
+        say(local.say, photos = local.photos)
     }
 
     private fun askBrain(t: String) {
@@ -399,12 +421,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun say(text: String, image: String? = null) {
-        messages += Msg(false, text, image)
+    private fun say(text: String, image: String? = null, photos: List<Uri> = emptyList()) {
+        messages += Msg(false, text, image, photos)
         phase = Phase.Speaking
         lastAction = System.currentTimeMillis()
         speaker.speak(text, token, serverVoice) {
             if (phase == Phase.Speaking) phase = Phase.Idle
+            // Изи задал вопрос — сразу слушаем ответ
+            if (pendingAsk != null && visible && phase == Phase.Idle) { startListening(); return@speak }
             // позвали голосом — ответил и через несколько секунд тишины сам уходит в фон, как Siri
             if (wakeSession) {
                 val mark = System.currentTimeMillis()
@@ -544,7 +568,7 @@ class MainActivity : ComponentActivity() {
                 if (messages.isEmpty()) {
                     item {
                         Text(
-                            "Скажи, например:\n«Поставь будильник на 7 утра»\n«Таймер на 10 минут»\n«Напомни через час позвонить маме»\n«Открой Ютуб»\n«Позвони Саше»\n«Включи фонарик»\nили спроси что угодно.",
+                            "Скажи, например:\n«Поставь будильник на 7 утра»\n«Напомни через час позвонить маме»\n«Напиши Саше в Ватсап, что я опоздаю»\n«Покажи фото за вчера»\n«Отправь последнее фото маме»\n«Открой Ютуб» · «Позвони Саше»\nили спроси что угодно.",
                             color = Dim, fontSize = 15.sp, lineHeight = 22.sp,
                             modifier = Modifier.padding(top = 24.dp, start = 8.dp),
                         )
@@ -616,7 +640,15 @@ class MainActivity : ComponentActivity() {
                     RemoteImage(m.image)
                     if (m.text.isNotBlank()) Spacer(Modifier.height(8.dp))
                 }
-                if (m.text.isNotBlank()) Text(m.text, color = Ink, fontSize = 16.sp, lineHeight = 22.sp)
+                if (m.text.isNotBlank()) {
+                    SelectionContainer {
+                        Text(linkify(m.text), color = Ink, fontSize = 16.sp, lineHeight = 22.sp)
+                    }
+                }
+                if (m.photos.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    PhotoGrid(m.photos)
+                }
             }
         }
     }
@@ -638,16 +670,119 @@ class MainActivity : ComponentActivity() {
             }
         }
         val b = bmp
+        var saved by remember(url) { mutableStateOf<Uri?>(null) }
         if (b != null) {
             Image(
                 bitmap = b.asImageBitmap(), contentDescription = null, contentScale = ContentScale.FillWidth,
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
-                    if (!url.startsWith("data:")) try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: Exception) {}
+                    val u = saved
+                    if (u != null) openPhoto(u)
+                    else if (!url.startsWith("data:")) try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: Exception) {}
                 },
             )
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SmallButton(if (saved != null) "✓ В галерее" else "⬇ Сохранить") {
+                    if (saved == null) saveImage(url) { saved = it }
+                    else openPhoto(saved!!)
+                }
+                SmallButton("↗ Поделиться") {
+                    val u = saved
+                    if (u != null) sharePhoto(u) else saveImage(url) { saved = it; if (it != null) sharePhoto(it) }
+                }
+            }
         } else {
             Text("🖼 картинка загружается…", color = Dim, fontSize = 14.sp)
         }
+    }
+
+    @Composable
+    private fun SmallButton(label: String, onClick: () -> Unit) {
+        Text(
+            label, color = VioletLight, fontSize = 14.sp,
+            modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color(0xFF2A2440))
+                .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 7.dp),
+        )
+    }
+
+    @OptIn(ExperimentalFoundationApi::class)
+    @Composable
+    private fun PhotoGrid(photos: List<Uri>) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            photos.take(30).chunked(3).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    row.forEach { uri ->
+                        val th by produceState<Bitmap?>(null, uri) {
+                            value = withContext(Dispatchers.IO) { Photos.thumbnail(this@MainActivity, uri) }
+                        }
+                        Box(
+                            Modifier.size(88.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF221E30))
+                                .combinedClickable(onClick = { openPhoto(uri) }, onLongClick = { sharePhoto(uri) })
+                        ) {
+                            th?.let {
+                                Image(it.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun openPhoto(uri: Uri) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "image/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+        } catch (_: Exception) {
+            Toast.makeText(this, "Нечем открыть фото", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun sharePhoto(uri: Uri) {
+        val i = Intent(Intent.ACTION_SEND).setType("image/*").putExtra(Intent.EXTRA_STREAM, uri)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        try { startActivity(Intent.createChooser(i, "Отправить")) } catch (_: Exception) {}
+    }
+
+    private fun saveImage(url: String, done: (Uri?) -> Unit) {
+        if (Build.VERSION.SDK_INT < 29 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+        ) {
+            askPerms.launch(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE))
+            Toast.makeText(this, "Разреши доступ к памяти и нажми ещё раз", Toast.LENGTH_SHORT).show()
+            done(null)
+            return
+        }
+        lifecycleScope.launch {
+            val uri = withContext(Dispatchers.IO) {
+                try {
+                    val (bytes, mime) = if (url.startsWith("data:")) {
+                        Base64.decode(url.substringAfter(","), Base64.DEFAULT) to url.substringAfter("data:").substringBefore(";").ifEmpty { "image/png" }
+                    } else {
+                        val c = URL(url).openConnection() as HttpURLConnection
+                        c.connectTimeout = 15_000; c.readTimeout = 60_000
+                        val type = c.contentType ?: "image/jpeg"
+                        c.inputStream.use { it.readBytes() } to type
+                    }
+                    Photos.saveToGallery(this@MainActivity, bytes, if (mime.startsWith("image/")) mime else "image/jpeg")
+                } catch (e: Exception) { null }
+            }
+            Toast.makeText(this@MainActivity, if (uri != null) "Сохранено в Галерею → Izi" else "Не получилось сохранить", Toast.LENGTH_SHORT).show()
+            done(uri)
+        }
+    }
+
+    private val urlRe = Regex("(https?://[^\\s<>\"«»)\\]]+)")
+
+    private fun linkify(text: String): AnnotatedString = buildAnnotatedString {
+        var last = 0
+        for (m in urlRe.findAll(text)) {
+            var url = m.value.trimEnd('.', ',', ';', ':', '!', '?')
+            append(text.substring(last, m.range.first))
+            withLink(LinkAnnotation.Url(url, TextLinkStyles(SpanStyle(color = VioletLight, textDecoration = TextDecoration.Underline)))) {
+                append(url)
+            }
+            last = m.range.first + url.length
+        }
+        append(text.substring(last))
     }
 }
 

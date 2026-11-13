@@ -20,7 +20,15 @@ import java.util.Locale
  */
 object PhoneActions {
 
-    data class Local(val say: String, val needPermission: String? = null)
+    /** Вопрос Изи, на который ждём ответ («Отправить?», «Куда — в Телеграм или Ватсап?»). */
+    class Ask(val handler: (Context, String) -> Local?)
+
+    data class Local(
+        val say: String,
+        val needPermission: String? = null,
+        val photos: List<android.net.Uri> = emptyList(),
+        val ask: Ask? = null,
+    )
 
     fun normalize(raw: String): String {
         var t = raw.lowercase(Locale("ru")).replace('ё', 'е')
@@ -37,6 +45,8 @@ object PhoneActions {
         val t = normalize(raw)
         if (t.isEmpty()) return null
         return timeAndDate(t)
+            ?: Photos.handle(ctx, t)
+            ?: Messaging.handle(ctx, t)
             ?: flashlight(ctx, t)
             ?: alarm(ctx, t)
             ?: timer(ctx, t)
@@ -120,7 +130,7 @@ object PhoneActions {
         return parts.joinToString(" ")
     }
 
-    private fun start(ctx: Context, i: Intent): Boolean = try {
+    internal fun start(ctx: Context, i: Intent): Boolean = try {
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         ctx.startActivity(i)
         true
@@ -238,7 +248,7 @@ object PhoneActions {
 
     private val ENDINGS = listOf("ому", "ему", "ой", "ей", "ом", "ем", "ою", "ею", "ую", "ю", "е", "у", "и", "ы", "а", "я")
 
-    private fun stem(w: String): String {
+    internal fun stem(w: String): String {
         if (w.length <= 3) return w
         for (e in ENDINGS) if (w.endsWith(e) && w.length - e.length >= 3) return w.dropLast(e.length)
         return w
@@ -271,7 +281,7 @@ object PhoneActions {
         else Local("Не получилось позвонить")
     }
 
-    private fun findContacts(ctx: Context, query: String): List<Pair<String, String>> {
+    internal fun findContacts(ctx: Context, query: String): List<Pair<String, String>> {
         val qStems = query.split(" ").filter { it.isNotBlank() }.map { stem(it) }
         val out = mutableListOf<Pair<String, String>>()
         val cr = ctx.contentResolver
