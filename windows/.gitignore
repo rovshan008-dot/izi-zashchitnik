@@ -1,0 +1,8 @@
+# Папка build/ здесь — исходные файлы оформления и установщика (корневой .gitignore её скрывает).
+!/build/
+# Результат сборки и файлы, которые Wails создаёт сам
+/build/bin/
+/build/windows/installer/wails_tools.nsh
+/build/windows/installer/tmp/
+/build/windows/info.json
+/frontend/wailsjs/
