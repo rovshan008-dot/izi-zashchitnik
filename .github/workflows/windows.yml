@@ -86,23 +86,33 @@ jobs:
         run: |
           makensis -VERSION
           LDFLAGS="-X main.appVersion=$VERSION -X github.com/sagernet/sing-box/constant.Version=$SING_BOX_VERSION -X runtime.godebugDefault=multipathtcp=0,tlssha1=1 -checklinkname=0"
-          wails build -clean -platform windows/amd64 -nsis -skipbindings -s -trimpath \
-            -tags "$BUILD_TAGS" -ldflags "$LDFLAGS"
-          ls -la build/bin
+          # Обычные компьютеры (x64) и компьютеры на ARM (в том числе Windows на Маке):
+          # драйвер сети должен совпадать с процессором, эмуляция для него не работает.
+          mkdir -p dist
+          for ARCH in amd64 arm64; do
+            wails build -clean -platform windows/$ARCH -nsis -skipbindings -s -trimpath \
+              -tags "$BUILD_TAGS" -ldflags "$LDFLAGS"
+            ls -la build/bin
+            cp build/bin/IziZashchitnik.exe "dist/IziZashchitnik-$ARCH.exe"
+            cp "build/bin/IziZashchitnik-$ARCH-installer.exe" "dist/IziZashchitnik-$ARCH-installer.exe"
+          done
+          ls -la dist
 
       - name: Проверка
         if: steps.plan.outputs.build == 'true'
-        working-directory: windows/build/bin
+        working-directory: windows/dist
         run: |
-          test -f IziZashchitnik.exe
-          test -f IziZashchitnik-amd64-installer.exe
-          # программа должна просить права администратора (иначе защита не включится)
-          grep -a -q requireAdministrator IziZashchitnik.exe && echo "Манифест: права администратора — есть"
-          echo "Программа: $(du -h IziZashchitnik.exe | cut -f1), установщик: $(du -h IziZashchitnik-amd64-installer.exe | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+          for ARCH in amd64 arm64; do
+            test -f "IziZashchitnik-$ARCH.exe"
+            test -f "IziZashchitnik-$ARCH-installer.exe"
+            # программа должна просить права администратора (иначе защита не включится)
+            grep -a -q requireAdministrator "IziZashchitnik-$ARCH.exe" && echo "$ARCH: права администратора — есть"
+            echo "$ARCH: программа $(du -h IziZashchitnik-$ARCH.exe | cut -f1), установщик $(du -h IziZashchitnik-$ARCH-installer.exe | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+          done
 
       - name: Выложить пробную сборку
         if: steps.plan.outputs.build == 'true'
-        working-directory: windows/build/bin
+        working-directory: windows/dist
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -111,8 +121,12 @@ jobs:
         run: |
           SETUP="IziZashchitnik-Windows-$VERSION-setup.exe"
           PORTABLE="IziZashchitnik-Windows-$VERSION.exe"
+          SETUP_ARM="IziZashchitnik-Windows-ARM-$VERSION-setup.exe"
+          PORTABLE_ARM="IziZashchitnik-Windows-ARM-$VERSION.exe"
           cp IziZashchitnik-amd64-installer.exe "$SETUP"
-          cp IziZashchitnik.exe "$PORTABLE"
+          cp IziZashchitnik-amd64.exe "$PORTABLE"
+          cp IziZashchitnik-arm64-installer.exe "$SETUP_ARM"
+          cp IziZashchitnik-arm64.exe "$PORTABLE_ARM"
           TITLE="Windows $VERSION (пробная)"
           # Повторная сборка той же версии (запуск вручную) не затирает уже выложенную.
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -123,5 +137,5 @@ jobs:
             --prerelease \
             --target "${{ github.sha }}" \
             --title "$TITLE" \
-            --notes "Пробная сборка «Изи Защитника» для Windows 10/11 (64 бит). Ядро sing-box $SING_BOX_VERSION. Установщик: $SETUP. Без установки: $PORTABLE." \
-            "$SETUP" "$PORTABLE"
+            --notes "Пробная сборка «Изи Защитника» для Windows 10/11. Ядро sing-box $SING_BOX_VERSION. Обычный компьютер: $SETUP. Компьютер на ARM (в том числе Windows на Маке): $SETUP_ARM. Файлы без «setup» — то же без установки." \
+            "$SETUP" "$PORTABLE" "$SETUP_ARM" "$PORTABLE_ARM"

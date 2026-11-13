@@ -6,3 +6,4 @@
 /build/windows/installer/tmp/
 /build/windows/info.json
 /frontend/wailsjs/
+/dist/
