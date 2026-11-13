@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  Страница установки «Изи Защитника»: скачать, установить, добавить подключение, включить.
+  Подробная инструкция по установке «Изи Защитника»: скачать, открыть, разрешить, установить, добавить, включить.
 
   Как пользоваться: положить файл на сайт и вести на него отдельной кнопкой
   «Наше приложение для Android», подставляя ссылку-подписку человека:
@@ -8,88 +8,290 @@
   (name необязателен; без url страница тоже работает, просто просит скопировать ссылку вручную).
 
   Файл приложения (izi-zashchitnik.apk) должен лежать рядом со страницей: его кладёт izi_site_patch.py.
+  Картинки на странице — схемы, нарисованные разметкой: настоящие окна на телефонах разных марок немного отличаются.
 -->
 <html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Изи Защитник — установка</title>
+  <meta name="theme-color" content="#080c12">
+  <title>Изи Защитник — как установить</title>
   <style>
-    :root { color-scheme: light dark; }
-    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-           background: #f4f6f8; color: #1b1f23; line-height: 1.45; }
-    main { max-width: 460px; margin: 0 auto; padding: 28px 18px 40px; }
-    h1 { font-size: 24px; margin: 0 0 4px; }
-    .lead { margin: 0 0 22px; color: #57606a; }
-    .step { background: #fff; border-radius: 16px; padding: 16px 16px 16px 60px; margin: 12px 0; position: relative; }
-    .num { position: absolute; left: 14px; top: 14px; width: 34px; height: 34px; border-radius: 50%;
-           background: #2e7d32; color: #fff; font-weight: 700; font-size: 18px;
-           display: flex; align-items: center; justify-content: center; }
-    .step h2 { font-size: 18px; margin: 4px 0 6px; }
-    .step p { margin: 6px 0; }
-    .btn { display: block; width: 100%; box-sizing: border-box; padding: 15px; margin: 10px 0 4px; border-radius: 12px; border: 0;
-           font-size: 17px; font-weight: 600; text-align: center; text-decoration: none; cursor: pointer; font-family: inherit; }
-    .primary { background: #2e7d32; color: #fff; }
-    .secondary { background: transparent; color: inherit; border: 1px solid #c9d1d9; }
-    .muted { color: #57606a; font-size: 14px; }
-    .note { background: #fff8e1; color: #5d4500; border-radius: 12px; padding: 12px 14px; margin: 12px 0; }
+    :root { color-scheme: dark; --ground: #080c12; --surface: #111720; --high: #1b232e; --line: #1f2731; --line2: #2a3440;
+            --text: #f2f5f8; --muted: #9aa7b5; --green: #3ee08a; --ongreen: #06210f; --warn: #ffd479; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--ground);
+           color: var(--text); line-height: 1.5; font-size: 16px; -webkit-text-size-adjust: 100%; }
+    main { max-width: 520px; margin: 0 auto; padding: 24px 16px 56px; }
+    a { color: var(--green); }
+    .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+    .brand svg { width: 60px; height: 60px; flex: none; border-radius: 15px; }
+    h1 { font-size: 26px; line-height: 1.2; margin: 0; letter-spacing: -0.3px; }
+    .brand p { margin: 2px 0 0; color: var(--muted); font-size: 15px; }
+    .lead { margin: 0 0 14px; color: var(--muted); }
+    .note { border: 1px solid var(--line2); background: var(--surface); border-radius: 14px; padding: 12px 14px; margin: 14px 0; font-size: 15px; }
+    .note b { color: var(--warn); font-weight: 600; }
+    .toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 6px; padding: 0; list-style: none; font-size: 14px; }
+    .toc li { border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; color: var(--muted); }
+    .toc b { color: var(--green); font-weight: 700; margin-right: 4px; }
+
+    .step { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 18px 16px; margin: 14px 0; }
+    .step-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .num { width: 36px; height: 36px; flex: none; border-radius: 50%; background: var(--green); color: var(--ongreen);
+           font-weight: 800; font-size: 18px; display: flex; align-items: center; justify-content: center; }
+    h2 { font-size: 20px; line-height: 1.25; margin: 0; }
+    .step p { margin: 8px 0; }
+    .step ol { margin: 8px 0; padding-left: 22px; }
+    .step li { margin: 6px 0; }
+    .q { color: var(--text); background: var(--high); border-radius: 6px; padding: 1px 6px; font-weight: 600; }
+    .muted { color: var(--muted); font-size: 14px; }
+    .once { display: inline-block; font-size: 12px; font-weight: 700; color: var(--ongreen); background: var(--green); border-radius: 999px; padding: 2px 9px; vertical-align: middle; }
+
+    .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 54px; padding: 12px 16px; margin: 12px 0 6px;
+           border-radius: 16px; border: 0; font: inherit; font-size: 18px; font-weight: 700; text-align: center; text-decoration: none; cursor: pointer; }
+    .primary { background: var(--green); color: var(--ongreen); }
+    .secondary { background: transparent; color: var(--text); border: 1px solid var(--line2); font-size: 16px; font-weight: 600; }
+    .ok { color: var(--green); font-size: 14px; margin: 4px 0 0; }
+
+    /* Схемы экранов телефона */
+    .shot { margin: 14px auto 6px; max-width: 300px; border: 1px solid var(--line2); border-radius: 22px; background: #0c1118; padding: 12px; }
+    .shot-cap { text-align: center; color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+    .win { background: #eef1f4; color: #1b1f23; border-radius: 16px; padding: 14px; font-size: 14px; line-height: 1.35; }
+    .win-title { font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+    .win-text { color: #4a5560; }
+    .win-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .chip { border-radius: 999px; padding: 8px 14px; font-weight: 700; font-size: 14px; color: #33506e; background: transparent; }
+    .hit { color: #06210f; background: var(--green); box-shadow: 0 0 0 0 rgba(62,224,138,0.7); animation: pulse 1.8s ease-out infinite; }
+    .bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #eef1f4; color: #1b1f23; border-radius: 14px; padding: 10px 10px 10px 14px; font-size: 14px; }
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #d5dbe1; font-weight: 600; }
+    .toggle { width: 46px; height: 26px; flex: none; border-radius: 13px; background: #1f9d5c; position: relative; box-shadow: 0 0 0 0 rgba(62,224,138,0.7); animation: pulse 1.8s ease-out infinite; }
+    .toggle::after { content: ""; position: absolute; right: 3px; top: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; }
+    .app { background: var(--ground); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    .power { width: 92px; height: 92px; border-radius: 50%; border: 2px solid var(--green); display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--text); background: var(--surface); }
+    .power svg { width: 30px; height: 30px; }
+    .app-add { width: 100%; border-radius: 12px; padding: 10px; text-align: center; font-weight: 700; font-size: 14px; }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(62,224,138,0.7); } 100% { box-shadow: 0 0 0 12px rgba(62,224,138,0); } }
+    @media (prefers-reduced-motion: reduce) { .hit, .toggle { animation: none; box-shadow: 0 0 0 4px rgba(62,224,138,0.35); } }
+
+    .brands { margin: 10px 0 0; padding: 0; list-style: none; font-size: 14px; }
+    .brands li { margin: 6px 0; color: var(--muted); }
+    .brands b { color: var(--text); }
+    h3 { font-size: 20px; margin: 30px 0 8px; }
+    details { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 0 14px; margin: 8px 0; }
+    summary { cursor: pointer; padding: 14px 0; font-weight: 600; }
+    details p, details ol { margin: 0 0 12px; color: var(--muted); font-size: 15px; }
+    details ol { padding-left: 20px; }
+    .done { text-align: center; border: 1px solid var(--green); background: #0f1d17; border-radius: 18px; padding: 18px 16px; margin: 14px 0; }
+    .done b { font-size: 20px; color: var(--green); }
+    .done p { margin: 6px 0 0; }
+    .foot { margin-top: 22px; }
     .hidden { display: none; }
-    @media (prefers-color-scheme: dark) {
-      body { background: #111418; color: #e6edf3; }
-      .step { background: #1b2027; }
-      .lead, .muted { color: #9aa4af; }
-      .secondary { border-color: #3d444d; }
-      .note { background: #3a2f0b; color: #f5e2a8; }
-    }
   </style>
 </head>
 <body>
 <main>
-  <h1>Изи Защитник</h1>
-  <p class="lead">Приложение для телефонов на Android. Установка занимает пару минут.</p>
-
-  <div id="ios" class="note hidden">
-    Похоже, у вас iPhone. Это приложение только для Android — для iPhone вернитесь назад и выберите другой способ подключения.
-  </div>
-
-  <div class="step">
-    <div class="num">1</div>
-    <h2>Скачайте приложение</h2>
-    <a id="download" class="btn primary" href="#">Скачать (<span id="size"></span>)</a>
-    <p class="muted">Если телефон спросит, можно ли скачать этот файл, — разрешите.</p>
-  </div>
-
-  <div class="step">
-    <div class="num">2</div>
-    <h2>Установите</h2>
-    <p>Откройте скачанный файл (он появится в уведомлениях или в «Загрузках») и нажмите «Установить».</p>
-    <p class="muted">Телефон может попросить разрешить установку из браузера — включите переключатель и вернитесь назад.
-      Если появится предупреждение о неизвестном приложении, выберите «Всё равно установить».</p>
-  </div>
-
-  <div class="step">
-    <div class="num">3</div>
-    <h2>Добавьте подключение</h2>
-    <p id="add-auto" class="hidden">Откройте «Изи Защитник» и нажмите «Добавить» — ваше подключение появится само.</p>
-    <p id="add-manual" class="hidden">Скопируйте ссылку, которую вам прислали, откройте «Изи Защитник» и нажмите «Добавить».</p>
-    <div id="add-fallback" class="hidden">
-      <p class="muted">Не появилось? Нажмите кнопку ниже, когда приложение уже установлено.</p>
-      <a id="add" class="btn secondary" href="#">Добавить подключение</a>
+  <div class="brand">
+    <svg viewBox="0 0 108 108" role="img" aria-label="Значок приложения «Изи Защитник»">
+      <defs>
+        <radialGradient id="bg" cx="54" cy="54" r="62" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#16402B"/><stop offset="0.55" stop-color="#0C1A16"/><stop offset="1" stop-color="#080C12"/></radialGradient>
+        <linearGradient id="sh" x1="54" y1="24" x2="54" y2="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#62F2A6"/><stop offset="1" stop-color="#2FCB78"/></linearGradient>
+      </defs>
+      <rect width="108" height="108" fill="url(#bg)"/>
+      <g transform="translate(54 54) scale(1.3) translate(-54 -54)">
+        <path d="M54,24.500 L76,32 L76,52 C76,66 66.500,77 54,83.500 C41.500,77 32,66 32,52 L32,32 Z" fill="url(#sh)" stroke="#3EE08A" stroke-width="3" stroke-linejoin="round"/>
+        <path d="M61.070,46.570 A11,11 0 1 1 46.930,46.570" fill="none" stroke="#06210F" stroke-width="4.6" stroke-linecap="round"/>
+        <path d="M54,40.500 L54,53" fill="none" stroke="#06210F" stroke-width="4.6" stroke-linecap="round"/>
+      </g>
+    </svg>
+    <div>
+      <h1>Изи Защитник</h1>
+      <p>Как установить на телефон Android</p>
     </div>
   </div>
 
-  <div class="step">
-    <div class="num">4</div>
-    <h2>Включите</h2>
-    <p>Нажмите большую кнопку «Включить». Телефон один раз спросит разрешение на подключение — согласитесь.</p>
+  <p class="lead">Шесть простых шагов, около трёх минут. Делайте по порядку — у каждого шага написано, что вы увидите и куда нажать.</p>
+
+  <div id="ios" class="note hidden">
+    <b>Похоже, у вас iPhone.</b> Это приложение только для Android. Вернитесь назад и выберите другой способ подключения.
   </div>
+
+  <div class="note">
+    <b>Телефон покажет одно-два предупреждения — это нормально.</b> Так Android реагирует на любое приложение, которое ставится не из магазина. Ниже показано, что нажимать в каждом окне.
+  </div>
+
+  <ul class="toc" aria-label="Шаги">
+    <li><b>1</b>Скачать</li><li><b>2</b>Открыть</li><li><b>3</b>Разрешить</li><li><b>4</b>Установить</li><li><b>5</b>Добавить</li><li><b>6</b>Включить</li>
+  </ul>
+
+  <!-- 1 -->
+  <section class="step">
+    <div class="step-head"><div class="num">1</div><h2>Скачайте приложение</h2></div>
+    <p>Нажмите зелёную кнопку. Файл весит <span id="size"></span>, на Wi-Fi это меньше минуты.</p>
+    <a id="download" class="btn primary" href="#">Скачать приложение</a>
+    <p>Браузер может переспросить, точно ли вы хотите скачать файл. Нажмите <span class="q">Скачать</span> или <span class="q">Всё равно скачать</span>.</p>
+    <div class="shot" aria-hidden="true">
+      <div class="win">
+        <div class="win-title">Скачать файл?</div>
+        <div class="win-text">izi-zashchitnik.apk<br>Файлы такого типа могут навредить устройству.</div>
+        <div class="win-row"><span class="chip">Отмена</span><span class="chip hit">Скачать</span></div>
+      </div>
+      <p class="shot-cap">Примерно так. На вашем телефоне слова могут немного отличаться.</p>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="step">
+    <div class="step-head"><div class="num">2</div><h2>Откройте скачанный файл</h2></div>
+    <p>Когда загрузка закончится, внизу экрана появится полоска с кнопкой <span class="q">Открыть</span>. Нажмите её.</p>
+    <div class="shot" aria-hidden="true">
+      <div class="bar"><span>Файл скачан</span><span class="chip hit">Открыть</span></div>
+      <p class="shot-cap">Полоска держится несколько секунд.</p>
+    </div>
+    <p><b>Не успели нажать?</b> Есть два способа найти файл:</p>
+    <ol>
+      <li>Проведите пальцем сверху вниз от края экрана. В уведомлениях будет строка «Загрузка завершена» или «Файл скачан» — нажмите на неё.</li>
+      <li>Или откройте приложение <span class="q">Файлы</span> (оно же «Мои файлы», «Проводник»), папку <span class="q">Загрузки</span>, и нажмите на файл <span class="q">izi-zashchitnik.apk</span>.</li>
+    </ol>
+  </section>
+
+  <!-- 3 -->
+  <section class="step">
+    <div class="step-head"><div class="num">3</div><h2>Разрешите установку</h2></div>
+    <p><span class="once">только в первый раз</span></p>
+    <p>Телефон скажет, что в целях безопасности установка из этого источника запрещена. Так он пишет про любое приложение не из магазина.</p>
+    <ol>
+      <li>В появившемся окне нажмите <span class="q">Настройки</span>.</li>
+      <li>Включите переключатель <span class="q">Разрешить установку из этого источника</span>.</li>
+      <li>Нажмите стрелку <span class="q">Назад</span> — телефон вернётся к установке.</li>
+    </ol>
+    <div class="shot" aria-hidden="true">
+      <div class="win">
+        <div class="win-text">В целях безопасности ваш телефон блокирует установку неизвестных приложений из этого источника.</div>
+        <div class="win-row"><span class="chip">Отмена</span><span class="chip hit">Настройки</span></div>
+      </div>
+      <div class="win" style="margin-top: 10px">
+        <div class="win-title">Установка неизвестных приложений</div>
+        <div class="toggle-row"><span>Разрешить установку из этого источника</span><span class="toggle"></span></div>
+      </div>
+      <p class="shot-cap">Сначала первое окно, потом второе.</p>
+    </div>
+    <ul class="brands">
+      <li><b>Samsung:</b> переключатель называется «Разрешение для этого источника».</li>
+      <li><b>Xiaomi, Redmi, POCO:</b> может появиться предупреждение с отсчётом в несколько секунд. Дождитесь конца отсчёта и нажмите «Принять» или «ОК».</li>
+      <li><b>Huawei, Honor:</b> переключатель называется «Разрешить установку приложений».</li>
+    </ul>
+    <p class="muted">Если такого окна не было, просто переходите к шагу 4.</p>
+  </section>
+
+  <!-- 4 -->
+  <section class="step">
+    <div class="step-head"><div class="num">4</div><h2>Нажмите «Установить»</h2></div>
+    <p>Телефон спросит, установить ли приложение. Нажмите <span class="q">Установить</span> и подождите несколько секунд.</p>
+    <div class="shot" aria-hidden="true">
+      <div class="win">
+        <div class="win-title">Изи Защитник</div>
+        <div class="win-text">Установить это приложение?</div>
+        <div class="win-row"><span class="chip">Отмена</span><span class="chip hit">Установить</span></div>
+      </div>
+    </div>
+    <p><b>Если появилось окно «Play Защита»</b> с предупреждением о неизвестном приложении: нажмите <span class="q">Подробнее</span>, затем <span class="q">Всё равно установить</span>.</p>
+    <div class="shot" aria-hidden="true">
+      <div class="win">
+        <div class="win-title">Play Защита</div>
+        <div class="win-text">Это приложение не проверялось. Разработчик неизвестен Play Защите.</div>
+        <div class="win-row"><span class="chip">ОК</span><span class="chip hit">Всё равно установить</span></div>
+      </div>
+      <p class="shot-cap">Это окно бывает не у всех. Кнопка может прятаться под словом «Подробнее».</p>
+    </div>
+    <p class="muted">Если телефон предложит отправить приложение на проверку, можно выбрать любой ответ: на установку это не влияет.</p>
+  </section>
+
+  <!-- 5 -->
+  <section class="step">
+    <div class="step-head"><div class="num">5</div><h2>Откройте приложение и добавьте подключение</h2></div>
+    <ol>
+      <li>После установки нажмите <span class="q">Открыть</span>. Или найдите на экране телефона зелёный щит с названием «Изи Защитник».</li>
+      <li id="add-auto" class="hidden">В приложении нажмите кнопку <span class="q">Добавить</span>. Ваше подключение появится само: ссылка скопировалась, когда вы нажимали «Скачать».</li>
+      <li id="add-manual" class="hidden">Скопируйте ссылку, которую вам прислали. Потом в приложении нажмите кнопку <span class="q">Добавить</span> — ссылка подставится сама.</li>
+    </ol>
+    <div class="shot" aria-hidden="true">
+      <div class="app">
+        <div class="power"><svg viewBox="0 0 24 24" fill="none" stroke="#3ee08a" stroke-width="2" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.300 6.800a8 8 0 1 0 11.400 0"/></svg>Включить</div>
+        <div class="muted">Сначала добавьте подключение</div>
+        <div class="app-add hit">+ Добавить</div>
+      </div>
+      <p class="shot-cap">Так выглядит приложение при первом запуске.</p>
+    </div>
+    <div id="add-fallback" class="hidden">
+      <p><b>Подключение не появилось?</b> Нажмите одну из кнопок ниже и вернитесь в приложение.</p>
+      <a id="add" class="btn secondary" href="#">Добавить подключение в приложение</a>
+      <button id="copy" class="btn secondary" type="button">Скопировать ссылку ещё раз</button>
+      <p id="copied" class="ok hidden">Ссылка скопирована. Откройте «Изи Защитник» и нажмите «Добавить».</p>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section class="step">
+    <div class="step-head"><div class="num">6</div><h2>Включите защиту</h2></div>
+    <ol>
+      <li>Нажмите большую круглую кнопку <span class="q">Включить</span>.</li>
+      <li>Телефон один раз спросит разрешение на подключение — нажмите <span class="q">ОК</span>.</li>
+      <li>Если спросит про уведомления — нажмите <span class="q">Разрешить</span>.</li>
+    </ol>
+    <div class="shot" aria-hidden="true">
+      <div class="win">
+        <div class="win-title">Запрос на подключение</div>
+        <div class="win-text">«Изи Защитник» хочет настроить защищённое подключение.</div>
+        <div class="win-row"><span class="chip">Отмена</span><span class="chip hit">ОК</span></div>
+      </div>
+      <p class="shot-cap">Этот вопрос задаётся только один раз.</p>
+    </div>
+  </section>
+
+  <div class="done">
+    <b>Готово</b>
+    <p>Кнопка стала зелёной, под ней написано «Защита включена». Чтобы выключить, нажмите ту же кнопку.</p>
+  </div>
+
+  <h3>Если что-то пошло не так</h3>
+
+  <details>
+    <summary>Телефон пишет «Приложение не установлено»</summary>
+    <ol>
+      <li>Если у вас уже стояла старая версия «Изи Защитника», удалите её: подержите палец на значке и выберите «Удалить». Потом повторите шаги 2–4.</li>
+      <li>Проверьте, что в телефоне есть свободное место — нужно около 200 МБ.</li>
+      <li>Скачайте файл заново: возможно, загрузка оборвалась.</li>
+    </ol>
+  </details>
+  <details>
+    <summary>Не могу найти скачанный файл</summary>
+    <p>Откройте приложение «Файлы» (или «Мои файлы», «Проводник»), в нём папку «Загрузки». Файл называется izi-zashchitnik.apk. Если его там нет, вернитесь к шагу 1 и скачайте ещё раз.</p>
+  </details>
+  <details>
+    <summary>Окна с переключателем из шага 3 не было, и установка не идёт</summary>
+    <p>Откройте «Настройки» телефона и в поиске наберите «неизвестных приложений». Выберите в списке ваш браузер и включите разрешение. Потом снова откройте скачанный файл.</p>
+  </details>
+  <details>
+    <summary>Телефон говорит, что файл опасен</summary>
+    <p>Такое предупреждение показывается для любого приложения не из магазина: телефон не знает, кто его сделал. Скачивайте файл только с этой страницы.</p>
+  </details>
+  <details>
+    <summary>Нажал «Добавить», а подключение не появилось</summary>
+    <p>В шаге 5 нажмите «Скопировать ссылку ещё раз», вернитесь в приложение и снова нажмите «Добавить». Если приложение просит вставить ссылку, подержите палец в поле и выберите «Вставить».</p>
+  </details>
+  <details>
+    <summary>Защита включена, но сайты не открываются</summary>
+    <p>В приложении нажмите строку «Сервер» под большой кнопкой и выберите другой сервер из списка. Если не помогло, выключите и снова включите защиту.</p>
+  </details>
+
+  <p class="muted foot">Не получилось? Напишите нам: кнопка «Поддержка» есть <a href="./">на главной странице</a>.</p>
 </main>
 <script>
   (function () {
     // Файл приложения лежит рядом с этой страницей. Его кладёт и обновляет izi_site_patch.py
     // (команды apply и apk), поэтому при новой сборке саму страницу менять не нужно.
     var APK_URL = 'izi-zashchitnik.apk';
-    var APK_SIZE = '67 МБ';
+    var APK_SIZE = 'около 67 МБ';
 
     var params = new URLSearchParams(location.search);
     var url = (params.get('url') || '').trim();
@@ -97,18 +299,20 @@
     // Принимаем только обычные ссылки http/https.
     var hasLink = /^https?:\/\/[^\s"'<>]+$/i.test(url);
 
-    function show(id) { document.getElementById(id).classList.remove('hidden'); }
+    function byId(id) { return document.getElementById(id); }
+    function show(id) { byId(id).classList.remove('hidden'); }
 
     // Кладём ссылку-подписку в буфер обмена: кнопка «Добавить» в приложении возьмёт её оттуда.
-    function copyLink() {
+    function copyLink(done) {
       if (!hasLink) { return; }
+      var finish = function () { if (done) { done(); } };
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(url).catch(legacyCopy);
+        navigator.clipboard.writeText(url).then(finish, function () { legacyCopy(finish); });
       } else {
-        legacyCopy();
+        legacyCopy(finish);
       }
     }
-    function legacyCopy() {
+    function legacyCopy(finish) {
       var field = document.createElement('textarea');
       field.value = url;
       field.setAttribute('readonly', '');
@@ -116,19 +320,20 @@
       field.style.opacity = '0';
       document.body.appendChild(field);
       field.select();
-      try { document.execCommand('copy'); } catch (e) {}
+      try { if (document.execCommand('copy')) { finish(); } } catch (e) {}
       document.body.removeChild(field);
     }
 
-    document.getElementById('size').textContent = APK_SIZE;
-    var download = document.getElementById('download');
+    byId('size').textContent = APK_SIZE;
+    var download = byId('download');
     download.setAttribute('href', APK_URL);
-    download.addEventListener('click', copyLink);
+    download.addEventListener('click', function () { copyLink(); });
 
     if (hasLink) {
       var deepLink = 'izi-zashchitnik://add?url=' + encodeURIComponent(url);
       if (name) { deepLink += '&name=' + encodeURIComponent(name); }
-      document.getElementById('add').setAttribute('href', deepLink);
+      byId('add').setAttribute('href', deepLink);
+      byId('copy').addEventListener('click', function () { copyLink(function () { show('copied'); }); });
       show('add-auto');
       show('add-fallback');
     } else {

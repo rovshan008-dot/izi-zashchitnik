@@ -1,15 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Изи Защитник: зелёный щит со знаком включения (как большая кнопка в приложении) -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:pathData="M54,27 L75,35 L75,54 C75,67 66,77 54,82 C42,77 33,67 33,54 L33,35 Z"
-        android:fillColor="#FFFFFF" />
+        android:pathData="M54,24.500 L76,32 L76,52 C76,66 66.500,77 54,83.500 C41.500,77 32,66 32,52 L32,32 Z"
+        android:strokeColor="#FF3EE08A"
+        android:strokeLineJoin="round"
+        android:strokeWidth="3">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endX="54"
+                android:endY="84"
+                android:startX="54"
+                android:startY="24"
+                android:type="linear">
+                <item android:color="#FF62F2A6" android:offset="0" />
+                <item android:color="#FF2FCB78" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
     <path
-        android:pathData="M44,54 L51,61 L64,46"
-        android:strokeColor="#12324A"
-        android:strokeWidth="5"
+        android:pathData="M61.070,46.570 A11,11 0 1 1 46.930,46.570"
+        android:strokeColor="#FF06210F"
         android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
+        android:strokeWidth="4.6" />
+    <path
+        android:pathData="M54,40.500 L54,53"
+        android:strokeColor="#FF06210F"
+        android:strokeLineCap="round"
+        android:strokeWidth="4.6" />
 </vector>

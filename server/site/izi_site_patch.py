@@ -27,7 +27,7 @@ PAGE_URL = REPO_RAW + BRANCH + "/server/site/ustanovka.html"
 # Файл приложения: универсальная сборка, подходит для любых телефонов. Менять при новой сборке.
 APK_URL = os.environ.get(
     "IZI_APK_URL",
-    "https://github.com/rovshan008-dot/izi-zashchitnik/releases/download/build-3/IziZashchitnik-0.2.1-universal.apk",
+    "https://github.com/rovshan008-dot/izi-zashchitnik/releases/download/build-6/IziZashchitnik-0.5.0-universal.apk",
 )
 APK_NAME = "izi-zashchitnik.apk"
 PAGE_NAME = "ustanovka.html"
