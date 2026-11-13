@@ -1,0 +1,26 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "IziZashchitnik",
+  "outputfilename": "IziZashchitnik",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "wailsjsdir": "",
+  "author": {
+    "name": "IZI",
+    "email": ""
+  },
+  "info": {
+    "companyName": "IZI",
+    "productName": "Изи Защитник",
+    "productVersion": "0.1.0",
+    "copyright": "IZI · на основе sing-box (GPL-3.0)",
+    "comments": "Изи Защитник для Windows",
+    "protocols": [
+      {
+        "scheme": "izi-zashchitnik",
+        "description": "Izi Zashchitnik link"
+      }
+    ]
+  }
+}

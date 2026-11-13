@@ -1,0 +1,130 @@
+name: Сборка для Windows
+
+# Изи Защитник для Windows (папка windows/): программа на Go с ядром sing-box и окном на Wails.
+# Номер версии — info.productVersion в windows/wails.json; на одну версию выкладывается одна сборка.
+
+on:
+  push:
+    branches: [main, "win-*"]
+    paths:
+      - "windows/**"
+      - ".github/workflows/windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.26.10"
+  WAILS_VERSION: v2.17.1
+  SING_BOX_VERSION: "1.14.4"
+  # Только то, что нужно нашим подпискам: Reality (utls), Hysteria2 (quic), сетевой адаптер (gvisor).
+  BUILD_TAGS: "with_gvisor with_quic with_utls with_clash_api badlinkname tfogo_checklinkname0"
+
+jobs:
+  build:
+    name: Программа и установщик
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Исходники
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+
+      - name: Нужна ли сборка
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          VERSION=$(python -c "import json;print(json.load(open('windows/wails.json',encoding='utf-8'))['info']['productVersion'])")
+          TAG="windows-v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = "push" ] && gh release view "$TAG" >/dev/null 2>&1; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "Версия $VERSION уже выложена — пересобирать нечего. Для новой сборки увеличьте productVersion." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "Собираю $TAG." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Go
+        if: steps.plan.outputs.build == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: windows/go.mod
+
+      - name: Зависимости
+        if: steps.plan.outputs.build == 'true'
+        working-directory: windows
+        run: |
+          go mod tidy
+          go install github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}
+
+      - name: NSIS (сборщик установщика)
+        if: steps.plan.outputs.build == 'true'
+        run: |
+          if ! command -v makensis >/dev/null 2>&1; then
+            if [ -x "/c/Program Files (x86)/NSIS/makensis.exe" ]; then
+              echo "/c/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
+            else
+              choco install nsis -y --no-progress
+              echo "/c/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
+            fi
+          fi
+
+      - name: Сборка
+        if: steps.plan.outputs.build == 'true'
+        working-directory: windows
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          makensis -VERSION
+          LDFLAGS="-X main.appVersion=$VERSION -X github.com/sagernet/sing-box/constant.Version=$SING_BOX_VERSION -X runtime.godebugDefault=multipathtcp=0,tlssha1=1 -checklinkname=0"
+          wails build -clean -platform windows/amd64 -nsis -skipbindings -s -trimpath \
+            -tags "$BUILD_TAGS" -ldflags "$LDFLAGS"
+          ls -la build/bin
+
+      - name: Проверка
+        if: steps.plan.outputs.build == 'true'
+        working-directory: windows/build/bin
+        run: |
+          test -f IziZashchitnik.exe
+          test -f IziZashchitnik-amd64-installer.exe
+          # программа должна просить права администратора (иначе защита не включится)
+          grep -a -q requireAdministrator IziZashchitnik.exe && echo "Манифест: права администратора — есть"
+          echo "Программа: $(du -h IziZashchitnik.exe | cut -f1), установщик: $(du -h IziZashchitnik-amd64-installer.exe | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Выложить пробную сборку
+        if: steps.plan.outputs.build == 'true'
+        working-directory: windows/build/bin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.plan.outputs.tag }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          SETUP="IziZashchitnik-Windows-$VERSION-setup.exe"
+          PORTABLE="IziZashchitnik-Windows-$VERSION.exe"
+          cp IziZashchitnik-amd64-installer.exe "$SETUP"
+          cp IziZashchitnik.exe "$PORTABLE"
+          TITLE="Windows $VERSION (пробная)"
+          # Повторная сборка той же версии (запуск вручную) не затирает уже выложенную.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            TAG="$TAG-${{ github.run_number }}"
+            TITLE="$TITLE, повтор ${{ github.run_number }}"
+          fi
+          gh release create "$TAG" \
+            --prerelease \
+            --target "${{ github.sha }}" \
+            --title "$TITLE" \
+            --notes "Пробная сборка «Изи Защитника» для Windows 10/11 (64 бит). Ядро sing-box $SING_BOX_VERSION. Установщик: $SETUP. Без установки: $PORTABLE." \
+            "$SETUP" "$PORTABLE"

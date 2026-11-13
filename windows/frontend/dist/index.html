@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Изи Защитник</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="screen">
+  <header class="brand">
+    <span class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="#06210f" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z"/></svg>
+    </span>
+    <span class="brand-name">Изи Защитник</span>
+  </header>
+
+  <section class="power-wrap">
+    <div class="glow" id="glow" aria-hidden="true"></div>
+    <button id="power" class="power" type="button">
+      <span id="power-icon" class="power-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="60" height="60" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg>
+      </span>
+      <span id="power-spinner" class="spinner big hidden" aria-hidden="true"></span>
+      <span id="power-label" class="power-label">Включить</span>
+    </button>
+    <div class="status">
+      <div id="status-title" class="status-title">Защита выключена</div>
+      <div id="status-sub" class="status-sub"></div>
+    </div>
+  </section>
+
+  <button id="server-row" class="server-row hidden" type="button">
+    <span class="server-text">
+      <span class="server-caption">Сервер</span>
+      <span id="server-title" class="server-title"></span>
+    </span>
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#9aa7b5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+  </button>
+
+  <section id="profiles-block" class="profiles hidden">
+    <div class="section-title">Мои подключения</div>
+    <div id="profiles" class="profile-list"></div>
+  </section>
+  <p id="empty" class="empty hidden">Скопируйте ссылку, которую вам прислали, и нажмите «Добавить».</p>
+
+  <button id="add" class="add" type="button">
+    <span id="add-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+    </span>
+    <span id="add-spinner" class="spinner hidden" aria-hidden="true"></span>
+    <span id="add-label">Добавить</span>
+  </button>
+
+  <div class="spacer"></div>
+  <button id="master" class="master" type="button">Для мастера</button>
+  <div id="version" class="version"></div>
+</main>
+
+<!-- Нижний лист и окна -->
+<div id="overlay" class="overlay hidden"></div>
+
+<div id="sheet-servers" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="servers-title">
+  <div class="sheet-handle" aria-hidden="true"></div>
+  <h2 id="servers-title">Выберите сервер</h2>
+  <p class="muted">Если что-то не открывается или работает медленно, попробуйте другой сервер.</p>
+  <div id="server-list" class="server-list"></div>
+  <button class="sheet-close" type="button" data-close>Закрыть</button>
+</div>
+
+<div id="sheet-master" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="master-title">
+  <div class="sheet-handle" aria-hidden="true"></div>
+  <h2 id="master-title">Для мастера</h2>
+  <div class="menu-list">
+    <button id="open-log" class="menu-item" type="button">Журнал работы</button>
+    <button id="open-folder" class="menu-item" type="button">Папка программы</button>
+    <button id="quit" class="menu-item danger" type="button">Выключить и выйти из программы</button>
+  </div>
+  <button class="sheet-close" type="button" data-close>Закрыть</button>
+</div>
+
+<div id="dialog" class="dialog hidden" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+  <h2 id="dialog-title"></h2>
+  <div id="dialog-body" class="dialog-body"></div>
+  <div class="dialog-actions">
+    <button id="dialog-cancel" class="text-btn" type="button">Отмена</button>
+    <button id="dialog-ok" class="text-btn accent" type="button">ОК</button>
+  </div>
+</div>
+
+<div id="menu" class="popup-menu hidden" role="menu"></div>
+<div id="toast" class="toast hidden" role="status"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
