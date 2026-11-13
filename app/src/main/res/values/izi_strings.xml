@@ -39,6 +39,14 @@
   <string name="izi_add_failed" translatable="false">Не получилось добавить по ссылке\n%1$s\n\nПроверьте, что скопирована ссылка на подключение и что есть интернет.\n\nПодробности: %2$s</string>
   <string name="izi_link_broken" translatable="false">В ссылке с сайта нет адреса подключения. Попробуйте скопировать ссылку и нажать «Добавить».</string>
 
+  <string name="izi_server_title" translatable="false">Сервер</string>
+  <string name="izi_server_dialog_title" translatable="false">Выберите сервер</string>
+  <string name="izi_server_hint" translatable="false">Если что-то не открывается или работает медленно, попробуйте другой сервер.</string>
+  <string name="izi_server_auto" translatable="false">Авто — самый быстрый</string>
+  <string name="izi_server_auto_now" translatable="false">Авто · %1$s</string>
+  <string name="izi_server_delay" translatable="false">%1$d мс</string>
+  <string name="izi_close" translatable="false">Закрыть</string>
+
   <string name="izi_master" translatable="false">Для мастера</string>
   <string name="izi_version" translatable="false">Сборка %1$d · версия %2$s</string>
 </resources>

@@ -2,6 +2,7 @@ package io.nekohasekai.sfa.compose.screen.home
 
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material3.AlertDialog
@@ -55,6 +58,7 @@ import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.component.UptimeText
 import io.nekohasekai.sfa.compose.screen.dashboard.DashboardUiState
+import io.nekohasekai.sfa.compose.screen.dashboard.IziServer
 import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
@@ -80,6 +84,7 @@ fun IziHomeScreen(
     onUpdateProfile: (Profile) -> Unit,
     onRenameProfile: (Profile, String) -> Unit,
     onRemoveProfile: (Profile) -> Unit,
+    onSelectServer: (String) -> Unit,
     onOpenMaster: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -88,6 +93,7 @@ fun IziHomeScreen(
     val hasProfiles = profiles.isNotEmpty()
 
     var showPasteDialog by remember { mutableStateOf(false) }
+    var showServerDialog by remember { mutableStateOf(false) }
     var profileToRename by remember { mutableStateOf<Profile?>(null) }
     var profileToRemove by remember { mutableStateOf<Profile?>(null) }
 
@@ -104,6 +110,19 @@ fun IziHomeScreen(
             onAdd = { link ->
                 showPasteDialog = false
                 onAdd(link)
+            },
+        )
+    }
+
+    if (showServerDialog) {
+        ServerDialog(
+            servers = uiState.iziServers,
+            selected = uiState.iziSelectedServer,
+            autoServer = uiState.iziAutoServer,
+            onDismiss = { showServerDialog = false },
+            onSelect = { tag ->
+                showServerDialog = false
+                onSelectServer(tag)
             },
         )
     }
@@ -186,6 +205,16 @@ fun IziHomeScreen(
             )
 
             Spacer(modifier = Modifier.height(28.dp))
+
+            // Ручной выбор сервера: показываем, когда в подключении больше одного сервера.
+            if (hasProfiles && uiState.iziServers.size > 1) {
+                ServerRow(
+                    selected = uiState.iziSelectedServer,
+                    autoServer = uiState.iziAutoServer,
+                    onClick = { showServerDialog = true },
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+            }
 
             if (hasProfiles) {
                 Text(
@@ -328,6 +357,103 @@ private fun StatusLine(serviceStatus: Status, hasProfiles: Boolean, startTime: L
             UptimeText(startTime = startTime)
         }
     }
+}
+
+/** Название сервера для человека: служебное «auto» показываем как «Авто». */
+@Composable
+private fun serverTitle(tag: String?, autoServer: String?): String = when {
+    tag == null -> ""
+    !tag.equals("auto", ignoreCase = true) -> tag
+    autoServer != null -> stringResource(R.string.izi_server_auto_now, autoServer)
+    else -> stringResource(R.string.izi_server_auto)
+}
+
+@Composable
+private fun ServerRow(selected: String?, autoServer: String?, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.izi_server_title),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    text = serverTitle(selected, autoServer),
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(imageVector = Icons.Default.ExpandMore, contentDescription = null)
+        }
+    }
+}
+
+@Composable
+private fun ServerDialog(
+    servers: List<IziServer>,
+    selected: String?,
+    autoServer: String?,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.izi_server_dialog_title)) },
+        text = {
+            Column {
+                Text(
+                    text = stringResource(R.string.izi_server_hint),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 380.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    servers.forEach { server ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelect(server.tag) }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = server.tag == selected, onClick = null)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = serverTitle(server.tag, if (server.tag == selected) autoServer else null),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (server.delayMs > 0) {
+                                Text(
+                                    text = stringResource(R.string.izi_server_delay, server.delayMs),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.izi_close))
+            }
+        },
+    )
 }
 
 @Composable

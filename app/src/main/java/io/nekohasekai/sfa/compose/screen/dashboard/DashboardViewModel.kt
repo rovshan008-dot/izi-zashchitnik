@@ -4,9 +4,11 @@ import androidx.lifecycle.viewModelScope
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.OutboundGroup
 import io.nekohasekai.libbox.StatusMessage
+import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.compose.base.BaseViewModel
 import io.nekohasekai.sfa.compose.base.UiEvent
+import io.nekohasekai.sfa.compose.model.Group
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
@@ -28,6 +30,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONException
+import org.json.JSONObject
 import java.io.File
 import java.util.Collections
 import java.util.Date
@@ -47,8 +50,16 @@ enum class CardPairGroup {
     Statistics,
 }
 
+/** Изи Защитник: сервер в списке выбора на главном экране. delayMs = 0, если задержка ещё не измерена. */
+data class IziServer(val tag: String, val delayMs: Int = 0)
+
 data class DashboardUiState(
     val serviceStatus: Status = Status.Stopped,
+    // Изи Защитник: ручной выбор сервера на главном экране
+    val iziServers: List<IziServer> = emptyList(),
+    val iziSelectedServer: String? = null,
+    // какой сервер сейчас выбрал режим «Авто» (известно только при включённой защите)
+    val iziAutoServer: String? = null,
     val profiles: List<Profile> = emptyList(),
     val selectedProfileId: Long = -1L,
     val selectedProfileName: String? = null,
@@ -117,6 +128,18 @@ data class DashboardUiState(
 class DashboardViewModel :
     BaseViewModel<DashboardUiState, UiEvent>(),
     CommandClient.Handler {
+    // Изи Защитник: поля выбора сервера объявлены до блока init, потому что он сразу запускает загрузку профилей.
+    private val iziPrefs by lazy {
+        Application.application.getSharedPreferences("izi_servers", android.content.Context.MODE_PRIVATE)
+    }
+
+    // группа выбора сервера из работающего ядра; null, пока защита выключена
+    @Volatile
+    private var iziLiveGroup: Group? = null
+
+    // для какого профиля и какого списка серверов запомненный выбор уже применён
+    private var iziRestoredFor: Pair<Long, List<String>>? = null
+
     private val _serviceStatus = MutableStateFlow(Status.Stopped)
     val serviceStatus: StateFlow<Status> = _serviceStatus.asStateFlow()
 
@@ -198,9 +221,121 @@ class DashboardViewModel :
                         )
                     }
                 }
+                if (iziLiveGroup == null) {
+                    publishOfflineServers(profiles.find { it.id == selectedId })
+                }
             } catch (e: Exception) {
                 sendError(e)
             }
+        }
+    }
+
+    // ---- Изи Защитник: ручной выбор сервера ----
+    // Пока защита включена, список и текущий выбор приходят от работающего ядра.
+    // Пока выключена, список читается из файла профиля, а выбор запоминается и применяется при включении.
+
+    private fun iziChoiceKey(profileId: Long) = "server_$profileId"
+
+    private fun savedServer(profileId: Long): String? = iziPrefs.getString(iziChoiceKey(profileId), null)
+
+    /** Список серверов из файла профиля: выходы группы-переключателя (обычно «proxy») и её выбор по умолчанию. */
+    private fun readServersFromFile(profile: Profile?): Pair<List<String>, String?> {
+        if (profile == null) return emptyList<String>() to null
+        return runCatching {
+            val outbounds = JSONObject(File(profile.typed.path).readText()).optJSONArray("outbounds")
+                ?: return@runCatching emptyList<String>() to null
+            var fallback: JSONObject? = null
+            var chosen: JSONObject? = null
+            for (i in 0 until outbounds.length()) {
+                val item = outbounds.optJSONObject(i) ?: continue
+                if (item.optString("type") != "selector") continue
+                if (fallback == null) fallback = item
+                if (item.optString("tag").equals("proxy", ignoreCase = true)) chosen = item
+            }
+            val selector = chosen ?: fallback ?: return@runCatching emptyList<String>() to null
+            val tags = selector.optJSONArray("outbounds") ?: return@runCatching emptyList<String>() to null
+            val list = (0 until tags.length()).map { tags.optString(it) }.filter { it.isNotEmpty() }
+            list to selector.optString("default").ifEmpty { list.firstOrNull() }
+        }.getOrDefault(emptyList<String>() to null)
+    }
+
+    private suspend fun publishOfflineServers(profile: Profile?) {
+        val (tags, default) = readServersFromFile(profile)
+        val saved = profile?.let { savedServer(it.id) }?.takeIf { it in tags }
+        withContext(Dispatchers.Main) {
+            if (iziLiveGroup != null) return@withContext
+            updateState {
+                copy(
+                    iziServers = tags.map { IziServer(it) },
+                    iziSelectedServer = saved ?: default,
+                    iziAutoServer = null,
+                )
+            }
+        }
+    }
+
+    /** Выбор сервера с главного экрана. Работает и при выключенной защите: выбор применится при включении. */
+    fun selectServer(tag: String) {
+        val profileId = Settings.selectedProfile
+        if (profileId != -1L) {
+            iziPrefs.edit().putString(iziChoiceKey(profileId), tag).apply()
+        }
+        val group = iziLiveGroup
+        if (group == null) {
+            updateState { copy(iziSelectedServer = tag) }
+            return
+        }
+        applyServer(group, tag)
+    }
+
+    private fun applyServer(group: Group, tag: String) {
+        if (group.selected == tag) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                CommandTarget.standaloneClient().selectOutbound(group.tag, tag)
+                // Старые соединения закрываем, чтобы всё сразу пошло через новый сервер.
+                runCatching { CommandTarget.standaloneClient().closeConnections() }
+                withContext(Dispatchers.Main) {
+                    iziLiveGroup = iziLiveGroup?.copy(selected = tag)
+                    updateState { copy(iziSelectedServer = tag) }
+                }
+            } catch (e: Exception) {
+                sendError(e)
+            }
+        }
+    }
+
+    private fun onLiveGroups(groups: List<Group>) {
+        val group = groups.firstOrNull { it.selectable && it.tag.equals("proxy", ignoreCase = true) }
+            ?: groups.firstOrNull { it.selectable }
+        iziLiveGroup = group
+        if (group == null) return
+        // «Авто» — это вложенная группа, которая сама выбирает живой сервер; показываем, какой именно.
+        val auto = groups.firstOrNull { it.tag != group.tag && it.tag == group.selected }
+        updateState {
+            copy(
+                iziServers = group.items.map { IziServer(it.tag, it.urlTestDelay) },
+                iziSelectedServer = group.selected,
+                iziAutoServer = auto?.selected?.takeIf { it.isNotEmpty() },
+            )
+        }
+        // Запомненный выбор применяем один раз на каждый запуск и на каждый новый список серверов.
+        val restoreKey = Settings.selectedProfile to group.items.map { it.tag }
+        if (iziRestoredFor != restoreKey) {
+            iziRestoredFor = restoreKey
+            val saved = savedServer(Settings.selectedProfile)
+            if (saved != null && saved != group.selected && group.items.any { it.tag == saved }) {
+                applyServer(group, saved)
+            }
+        }
+    }
+
+    private fun onLiveGroupsGone() {
+        iziLiveGroup = null
+        iziRestoredFor = null
+        viewModelScope.launch(Dispatchers.IO) {
+            val profile = runCatching { ProfileManager.get(Settings.selectedProfile) }.getOrNull()
+            publishOfflineServers(profile)
         }
     }
 
@@ -538,6 +673,7 @@ class DashboardViewModel :
                         downlinkHistory = List(30) { 0f },
                     )
                 }
+                onLiveGroupsGone()
             }
 
             else -> {}
@@ -693,10 +829,15 @@ class DashboardViewModel :
     }
 
     override fun updateGroups(newGroups: MutableList<OutboundGroup>) {
+        // Группы переводим в свои объекты сразу, пока данные ядра точно действительны.
+        val groups = runCatching { newGroups.map { Group(it) } }.getOrDefault(emptyList())
+        val count = newGroups.size
         viewModelScope.launch(Dispatchers.Main) {
-            val hasGroups = newGroups.isNotEmpty()
             updateState {
-                copy(hasGroups = hasGroups, groupsCount = newGroups.size)
+                copy(hasGroups = count > 0, groupsCount = count)
+            }
+            if (_serviceStatus.value == Status.Started) {
+                onLiveGroups(groups)
             }
         }
     }

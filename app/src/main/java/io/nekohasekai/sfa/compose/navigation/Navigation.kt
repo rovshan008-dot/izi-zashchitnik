@@ -134,6 +134,7 @@ fun NavHost(
                     onUpdateProfile = dashboardViewModel::updateProfile,
                     onRenameProfile = dashboardViewModel::renameProfile,
                     onRemoveProfile = dashboardViewModel::removeProfile,
+                    onSelectServer = dashboardViewModel::selectServer,
                     onOpenMaster = {
                         navController.navigate(Screen.Dashboard.route) {
                             launchSingleTop = true
