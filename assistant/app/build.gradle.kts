@@ -62,7 +62,6 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
-    androidResources { noCompress += listOf("fst", "mdl", "int", "conf", "mat", "ie", "stats", "dubm") }
     lint { checkReleaseBuilds = false; abortOnError = false }
     dependenciesInfo { includeInApk = false; includeInBundle = false }
 }
