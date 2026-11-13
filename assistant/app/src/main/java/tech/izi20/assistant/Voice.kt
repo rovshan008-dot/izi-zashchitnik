@@ -177,7 +177,7 @@ class Speaker(private val ctx: Context, private val scope: CoroutineScope) {
     }
 
     private fun forSpeech(text: String): String {
-        var t = text.replace(Regex("https?://\\S+"), " ")
+        var t = text.replace(Regex("https?://\\S+"), " ").replace("•", " ").replace("\n", ". ")
             .replace(Regex("[\\p{So}\\p{Sk}\\x{FE0F}\\x{200D}*_#`>|]"), " ")
             .replace(Regex("\\s+"), " ").trim()
         // длинные ответы читаем не целиком — полностью они на экране

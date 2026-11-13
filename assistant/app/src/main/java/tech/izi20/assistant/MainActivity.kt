@@ -201,6 +201,7 @@ class MainActivity : ComponentActivity() {
 
         readIntent(intent)
         if (token != null) askBasicPermissions()
+        if (token != null && !autoListen) lifecycleScope.launch { delay(700); introIfNeeded() }
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = D.Violet, background = D.Deep, surface = Color(0xFF16131F))) {
@@ -464,6 +465,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Первый раз Изи коротко рассказывает, что умеет. */
+    private fun introIfNeeded() {
+        if (prefs.getBoolean("intro_done", false)) return
+        prefs.edit().putBoolean("intro_done", true).apply()
+        say(PhoneActions.INTRO)
+    }
+
     private var seenVersion = -1
 
     private fun addMsg(m: Msg) {
@@ -512,6 +520,7 @@ class MainActivity : ComponentActivity() {
                     prefs.edit().putString("token", it).apply()
                     token = it
                     askBasicPermissions()
+                    introIfNeeded()
                 }.onFailure { error = it.message ?: "Не получилось" }
             }
         }
@@ -652,6 +661,7 @@ class MainActivity : ComponentActivity() {
                         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 14.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
+                        Chip("Что ты умеешь?") { handleText("Что ты умеешь?") }
                         Chip("Будильник на 7:00") { handleText("Поставь будильник на 7:00") }
                         Chip("Фото за вчера") { handleText("Покажи фото за вчера") }
                         Chip("Погода завтра") { handleText("Какая погода завтра?") }
