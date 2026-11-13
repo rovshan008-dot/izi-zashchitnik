@@ -72,14 +72,11 @@ jobs:
       - name: NSIS (сборщик установщика)
         if: steps.plan.outputs.build == 'true'
         run: |
-          if ! command -v makensis >/dev/null 2>&1; then
-            if [ -x "/c/Program Files (x86)/NSIS/makensis.exe" ]; then
-              echo "/c/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
-            else
-              choco install nsis -y --no-progress
-              echo "/c/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
-            fi
+          # Путь в формате Windows: Wails ищет makensis сам, путь вида /c/... он не понимает.
+          if [ ! -x "/c/Program Files (x86)/NSIS/makensis.exe" ]; then
+            choco install nsis -y --no-progress
           fi
+          echo 'C:\Program Files (x86)\NSIS' >> "$GITHUB_PATH"
 
       - name: Сборка
         if: steps.plan.outputs.build == 'true'
