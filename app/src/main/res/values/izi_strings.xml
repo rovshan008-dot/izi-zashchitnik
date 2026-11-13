@@ -6,6 +6,8 @@
   <string name="izi_status_on" translatable="false">Защита включена</string>
   <string name="izi_status_stopping" translatable="false">Выключаем…</string>
   <string name="izi_status_no_profile" translatable="false">Сначала добавьте подключение</string>
+  <string name="izi_status_off_hint" translatable="false">Нажмите, чтобы включить</string>
+  <string name="izi_status_uptime" translatable="false">Работает</string>
 
   <string name="izi_button_turn_on" translatable="false">Включить</string>
   <string name="izi_button_turn_off" translatable="false">Выключить</string>

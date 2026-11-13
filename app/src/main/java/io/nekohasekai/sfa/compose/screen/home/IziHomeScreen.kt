@@ -1,7 +1,12 @@
 package io.nekohasekai.sfa.compose.screen.home
 
+import android.app.Activity
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,35 +30,47 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowCompat
 import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.component.UptimeText
@@ -66,7 +83,42 @@ import io.nekohasekai.sfa.database.TypedProfile
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-private val ProtectionOnColor = Color(0xFF2E7D32)
+// Палитра главного экрана: та же, что на сайте «Цифровая безопасность» (тёмный фон, зелёный акцент).
+private val IziGround = Color(0xFF080C12)
+private val IziSurface = Color(0xFF111720)
+private val IziSurfaceHigh = Color(0xFF1B232E)
+private val IziLine = Color(0xFF1F2731)
+private val IziLineStrong = Color(0xFF2A3440)
+private val IziText = Color(0xFFF2F5F8)
+private val IziMuted = Color(0xFF9AA7B5)
+private val IziGreen = Color(0xFF3EE08A)
+private val IziOnGreen = Color(0xFF06210F)
+private val IziSelected = Color(0xFF0F1D17)
+
+// Главный экран всегда тёмный, какая бы тема ни стояла в телефоне; диалоги экрана берут те же цвета.
+private val IziColorScheme = darkColorScheme(
+    primary = IziGreen,
+    onPrimary = IziOnGreen,
+    primaryContainer = IziSelected,
+    onPrimaryContainer = IziText,
+    secondary = IziGreen,
+    onSecondary = IziOnGreen,
+    background = IziGround,
+    onBackground = IziText,
+    surface = IziSurface,
+    onSurface = IziText,
+    surfaceVariant = IziSurface,
+    onSurfaceVariant = IziMuted,
+    surfaceContainerLowest = IziGround,
+    surfaceContainerLow = IziSurface,
+    surfaceContainer = IziSurface,
+    surfaceContainerHigh = IziSurface,
+    surfaceContainerHighest = IziSurfaceHigh,
+    outline = IziLineStrong,
+    outlineVariant = IziLine,
+    error = Color(0xFFFF8A80),
+    onError = Color(0xFF2B0A07),
+)
 
 /**
  * Изи Защитник: простой главный экран.
@@ -75,6 +127,62 @@ private val ProtectionOnColor = Color(0xFF2E7D32)
  */
 @Composable
 fun IziHomeScreen(
+    serviceStatus: Status,
+    uiState: DashboardUiState,
+    isAdding: Boolean,
+    onToggleService: () -> Unit,
+    onAdd: (QuickProfileAdder.Link) -> Unit,
+    onSelectProfile: (Long) -> Unit,
+    onUpdateProfile: (Profile) -> Unit,
+    onRenameProfile: (Profile, String) -> Unit,
+    onRemoveProfile: (Profile) -> Unit,
+    onSelectServer: (String) -> Unit,
+    onOpenMaster: () -> Unit,
+) {
+    // Экран тёмный, поэтому значки в строке состояния телефона делаем светлыми; при уходе с экрана возвращаем как было.
+    val view = LocalView.current
+    val systemDark = isSystemInDarkTheme()
+    if (!view.isInEditMode) {
+        // После каждой перерисовки: общая тема приложения может вернуть тёмные значки.
+        SideEffect {
+            val window = (view.context as? Activity)?.window ?: return@SideEffect
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = false
+                isAppearanceLightNavigationBars = false
+            }
+        }
+        DisposableEffect(view, systemDark) {
+            onDispose {
+                val window = (view.context as? Activity)?.window
+                if (window != null) {
+                    WindowCompat.getInsetsController(window, view).apply {
+                        isAppearanceLightStatusBars = !systemDark
+                        isAppearanceLightNavigationBars = !systemDark
+                    }
+                }
+            }
+        }
+    }
+
+    MaterialTheme(colorScheme = IziColorScheme) {
+        IziHomeContent(
+            serviceStatus = serviceStatus,
+            uiState = uiState,
+            isAdding = isAdding,
+            onToggleService = onToggleService,
+            onAdd = onAdd,
+            onSelectProfile = onSelectProfile,
+            onUpdateProfile = onUpdateProfile,
+            onRenameProfile = onRenameProfile,
+            onRemoveProfile = onRemoveProfile,
+            onSelectServer = onSelectServer,
+            onOpenMaster = onOpenMaster,
+        )
+    }
+}
+
+@Composable
+private fun IziHomeContent(
     serviceStatus: Status,
     uiState: DashboardUiState,
     isAdding: Boolean,
@@ -171,6 +279,7 @@ fun IziHomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .background(IziGround)
             .padding(LocalScaffoldPadding.current),
         contentAlignment = Alignment.TopCenter,
     ) {
@@ -182,13 +291,33 @@ fun IziHomeScreen(
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(
-                text = stringResource(R.string.app_name),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .background(IziGreen, RoundedCornerShape(9.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Shield,
+                        contentDescription = null,
+                        tint = IziOnGreen,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = IziText,
+                )
+            }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(40.dp))
 
             PowerButton(
                 serviceStatus = serviceStatus,
@@ -196,7 +325,7 @@ fun IziHomeScreen(
                 onClick = onToggleService,
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             StatusLine(
                 serviceStatus = serviceStatus,
@@ -219,8 +348,8 @@ fun IziHomeScreen(
             if (hasProfiles) {
                 Text(
                     text = stringResource(R.string.izi_profiles_title),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = IziMuted,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(start = 4.dp, bottom = 8.dp),
@@ -247,7 +376,7 @@ fun IziHomeScreen(
                     text = stringResource(R.string.izi_profiles_empty),
                     style = MaterialTheme.typography.bodyLarge,
                     textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = IziMuted,
                     modifier = Modifier.padding(horizontal = 12.dp),
                 )
             }
@@ -266,13 +395,13 @@ fun IziHomeScreen(
                 Text(
                     text = stringResource(R.string.izi_master),
                     style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = IziMuted,
                 )
             }
             Text(
                 text = stringResource(R.string.izi_version, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
+                color = IziMuted.copy(alpha = 0.7f),
             )
         }
     }
@@ -282,56 +411,86 @@ fun IziHomeScreen(
 private fun PowerButton(serviceStatus: Status, enabled: Boolean, onClick: () -> Unit) {
     val isOn = serviceStatus == Status.Started
     val isBusy = serviceStatus == Status.Starting || serviceStatus == Status.Stopping
-    val container = when {
-        !enabled -> MaterialTheme.colorScheme.surfaceVariant
-        isOn -> ProtectionOnColor
-        else -> MaterialTheme.colorScheme.primary
+    // Выключено: тёмная кнопка с зелёным контуром. Включено: кнопка целиком зелёная и светится.
+    val container by animateColorAsState(if (isOn) IziGreen else IziSurface, label = "powerContainer")
+    val content by animateColorAsState(
+        when {
+            !enabled -> IziMuted
+            isOn -> IziOnGreen
+            else -> IziText
+        },
+        label = "powerContent",
+    )
+    val accent = when {
+        !enabled -> IziLineStrong
+        else -> IziGreen
     }
-    val content = when {
-        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant
-        isOn -> Color.White
-        else -> MaterialTheme.colorScheme.onPrimary
-    }
+    val glow by animateColorAsState(
+        if (isOn) IziGreen.copy(alpha = 0.26f) else Color.Transparent,
+        label = "powerGlow",
+    )
     val label = when (serviceStatus) {
         Status.Stopped -> stringResource(R.string.izi_button_turn_on)
         Status.Started -> stringResource(R.string.izi_button_turn_off)
         Status.Starting, Status.Stopping -> stringResource(R.string.izi_button_wait)
     }
 
-    Surface(
-        onClick = onClick,
-        // Пока защита выключается, нажимать нечего; пока включается, нажатие отменяет запуск.
-        enabled = enabled && serviceStatus != Status.Stopping,
-        shape = CircleShape,
-        color = container,
-        contentColor = content,
-        shadowElevation = if (enabled) 6.dp else 0.dp,
-        modifier = Modifier.size(196.dp),
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            if (isBusy) {
-                CircularProgressIndicator(
-                    color = content,
-                    strokeWidth = 4.dp,
-                    modifier = Modifier.size(56.dp),
+    Box(
+        modifier = Modifier
+            .size(196.dp)
+            .drawBehind {
+                // свечение вокруг включённой кнопки и мягкое кольцо у самой кнопки
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(glow, Color.Transparent),
+                        center = center,
+                        radius = size.minDimension * 1.05f,
+                    ),
+                    radius = size.minDimension * 1.05f,
                 )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.PowerSettingsNew,
-                    contentDescription = null,
-                    modifier = Modifier.size(64.dp),
+                drawCircle(
+                    color = accent.copy(alpha = if (isOn) 0.14f else 0.06f),
+                    radius = size.minDimension / 2f + 10.dp.toPx(),
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            onClick = onClick,
+            // Пока защита выключается, нажимать нечего; пока включается, нажатие отменяет запуск.
+            enabled = enabled && serviceStatus != Status.Stopping,
+            shape = CircleShape,
+            color = container,
+            contentColor = content,
+            border = if (isOn) null else BorderStroke(2.dp, accent),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                if (isBusy) {
+                    CircularProgressIndicator(
+                        color = if (isOn) IziOnGreen else IziGreen,
+                        strokeWidth = 4.dp,
+                        modifier = Modifier.size(52.dp),
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.PowerSettingsNew,
+                        contentDescription = null,
+                        tint = if (isOn) IziOnGreen else accent,
+                        modifier = Modifier.size(60.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
                 )
             }
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                text = label,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
         }
     }
 }
@@ -348,13 +507,28 @@ private fun StatusLine(serviceStatus: Status, hasProfiles: Boolean, startTime: L
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = text,
-            style = MaterialTheme.typography.titleMedium,
-            color = if (serviceStatus == Status.Started) ProtectionOnColor else MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = if (serviceStatus == Status.Started) IziGreen else IziText,
             textAlign = TextAlign.Center,
         )
+        Spacer(modifier = Modifier.height(4.dp))
         if (serviceStatus == Status.Started && startTime != null) {
-            Spacer(modifier = Modifier.height(2.dp))
-            UptimeText(startTime = startTime)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(R.string.izi_status_uptime),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = IziMuted,
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                UptimeText(startTime = startTime)
+            }
+        } else if (hasProfiles && serviceStatus == Status.Stopped) {
+            Text(
+                text = stringResource(R.string.izi_status_off_hint),
+                style = MaterialTheme.typography.bodyMedium,
+                color = IziMuted,
+            )
         }
     }
 }
@@ -373,8 +547,9 @@ private fun ServerRow(selected: String?, autoServer: String?, onClick: () -> Uni
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = IziSurface,
+        contentColor = IziText,
+        border = BorderStroke(1.dp, IziLine),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
@@ -385,19 +560,23 @@ private fun ServerRow(selected: String?, autoServer: String?, onClick: () -> Uni
                 Text(
                     text = stringResource(R.string.izi_server_title),
                     style = MaterialTheme.typography.bodySmall,
+                    color = IziMuted,
                 )
                 Text(
                     text = serverTitle(selected, autoServer),
                     style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Icon(imageVector = Icons.Default.ExpandMore, contentDescription = null)
+            Icon(imageVector = Icons.Default.ExpandMore, contentDescription = null, tint = IziMuted)
         }
     }
 }
 
+/** Список серверов выезжает снизу. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ServerDialog(
     servers: List<IziServer>,
@@ -406,54 +585,91 @@ private fun ServerDialog(
     onDismiss: () -> Unit,
     onSelect: (String) -> Unit,
 ) {
-    AlertDialog(
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.izi_server_dialog_title)) },
-        text = {
-            Column {
-                Text(
-                    text = stringResource(R.string.izi_server_hint),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Column(
-                    modifier = Modifier
-                        .heightIn(max = 380.dp)
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    servers.forEach { server ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onSelect(server.tag) }
-                                .padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(selected = server.tag == selected, onClick = null)
-                            Spacer(modifier = Modifier.width(12.dp))
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = IziSurface,
+        contentColor = IziText,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.izi_server_dialog_title),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = stringResource(R.string.izi_server_hint),
+                style = MaterialTheme.typography.bodyMedium,
+                color = IziMuted,
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                servers.forEach { server ->
+                    val isSelected = server.tag == selected
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(server.tag) }
+                            .heightIn(min = 52.dp)
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = null,
+                            colors = RadioButtonDefaults.colors(selectedColor = IziGreen, unselectedColor = IziMuted),
+                        )
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Text(
+                            text = serverTitle(server.tag, if (isSelected) autoServer else null),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (server.delayMs > 0) {
                             Text(
-                                text = serverTitle(server.tag, if (server.tag == selected) autoServer else null),
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.weight(1f),
+                                text = stringResource(R.string.izi_server_delay, server.delayMs),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = IziMuted,
                             )
-                            if (server.delayMs > 0) {
-                                Text(
-                                    text = stringResource(R.string.izi_server_delay, server.delayMs),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
                         }
                     }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(IziLine),
+                    )
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.izi_close))
+            Spacer(modifier = Modifier.height(14.dp))
+            Button(
+                onClick = onDismiss,
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = IziSurfaceHigh,
+                    contentColor = IziText,
+                ),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.izi_close),
+                    style = MaterialTheme.typography.titleMedium,
+                )
             }
-        },
-    )
+        }
+    }
 }
 
 @Composable
@@ -479,28 +695,26 @@ private fun ProfileRow(
     Surface(
         onClick = onSelect,
         shape = RoundedCornerShape(16.dp),
-        color = if (selected) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
-        },
-        contentColor = if (selected) {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
+        color = if (selected) IziSelected else IziSurface,
+        contentColor = IziText,
+        border = BorderStroke(1.dp, if (selected) IziGreen else IziLine),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
             modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            RadioButton(selected = selected, onClick = null)
+            RadioButton(
+                selected = selected,
+                onClick = null,
+                colors = RadioButtonDefaults.colors(selectedColor = IziGreen, unselectedColor = IziMuted),
+            )
             Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = profile.name,
                     style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -508,6 +722,7 @@ private fun ProfileRow(
                     Text(
                         text = stringResource(R.string.izi_profile_updated_at, updatedAt),
                         style = MaterialTheme.typography.bodySmall,
+                        color = IziMuted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -521,6 +736,7 @@ private fun ProfileRow(
                         Icon(
                             imageVector = Icons.Default.MoreVert,
                             contentDescription = stringResource(R.string.izi_profile_menu),
+                            tint = IziMuted,
                         )
                     }
                     DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
@@ -556,25 +772,54 @@ private fun ProfileRow(
 
 @Composable
 private fun AddButton(primary: Boolean, isAdding: Boolean, onClick: () -> Unit) {
+    // Пока подключений нет, это главная кнопка экрана (зелёная); потом — спокойная, с контуром.
+    val contentColor = if (primary) IziOnGreen else IziText
     val content: @Composable () -> Unit = {
         if (isAdding) {
-            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+            CircularProgressIndicator(
+                strokeWidth = 2.dp,
+                color = if (primary) IziOnGreen else IziGreen,
+                modifier = Modifier.size(20.dp),
+            )
         } else {
-            Icon(imageVector = Icons.Default.Add, contentDescription = null)
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = null,
+                tint = if (primary) IziOnGreen else IziGreen,
+            )
         }
-        Spacer(modifier = Modifier.width(10.dp))
+        Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = stringResource(if (isAdding) R.string.izi_adding else R.string.izi_add),
             style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = contentColor,
         )
     }
     val modifier = Modifier
         .fillMaxWidth()
-        .height(56.dp)
+        .height(54.dp)
     if (primary) {
-        Button(onClick = onClick, enabled = !isAdding, modifier = modifier) { content() }
+        Button(
+            onClick = onClick,
+            enabled = !isAdding,
+            shape = RoundedCornerShape(16.dp),
+            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                containerColor = IziGreen,
+                contentColor = IziOnGreen,
+                disabledContainerColor = IziGreen.copy(alpha = 0.6f),
+                disabledContentColor = IziOnGreen,
+            ),
+            modifier = modifier,
+        ) { content() }
     } else {
-        OutlinedButton(onClick = onClick, enabled = !isAdding, modifier = modifier) { content() }
+        OutlinedButton(
+            onClick = onClick,
+            enabled = !isAdding,
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, IziLineStrong),
+            modifier = modifier,
+        ) { content() }
     }
 }
 
