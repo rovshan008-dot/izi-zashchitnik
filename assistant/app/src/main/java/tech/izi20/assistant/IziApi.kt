@@ -82,7 +82,10 @@ object IziApi {
             JSONObject().put("token", token).put("text", text).put("image", imageDataUrl),
         )
         val r = parseReply(code, s)
-        if (r.authExpired || (code in 200..299 && r.text != null)) r else null
+        val t = r.text?.lowercase().orEmpty()
+        // сервер принял снимок, но не разглядел его — тогда спросим по тексту с экрана
+        val failed = Regex("(не получилось|не удалось|не могу|не вижу).{0,25}(разглядеть|рассмотреть|увидеть|изображени|картинк|фото|снимок)").containsMatchIn(t)
+        if (r.authExpired || (code in 200..299 && r.text != null && !failed)) r else null
     } catch (e: Exception) {
         null
     }

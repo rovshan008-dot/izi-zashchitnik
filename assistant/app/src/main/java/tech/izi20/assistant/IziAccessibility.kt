@@ -76,10 +76,10 @@ class IziAccessibility : AccessibilityService() {
     }
 
     private fun toDataUrl(src: Bitmap): String {
-        val maxW = 1080
+        val maxW = 800
         val b = if (src.width > maxW) Bitmap.createScaledBitmap(src, maxW, src.height * maxW / src.width, true) else src
         val out = ByteArrayOutputStream()
-        b.compress(Bitmap.CompressFormat.JPEG, 72, out)
+        b.compress(Bitmap.CompressFormat.JPEG, 65, out)
         return "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
     }
 }
