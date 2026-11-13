@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<!--
+  Windows. Подробная инструкция по установке «Изи Защитника»: скачать, открыть, разрешить, установить, добавить, включить.
+
+  Как пользоваться: положить файл на сайт и вести на него отдельной кнопкой
+  «Наше приложение для Android», подставляя ссылку-подписку человека:
+    https://ВАШ-САЙТ/ustanovka.html?url=http://191.217.231.17/ТОКЕН&name=Моя%20защита
+  (name необязателен; без url страница тоже работает, просто просит скопировать ссылку вручную).
+
+  Файл приложения (izi-zashchitnik.apk) должен лежать рядом со страницей: его кладёт izi_site_patch.py.
+  Картинки на странице — схемы, нарисованные разметкой: настоящие окна на телефонах разных марок немного отличаются.
+-->
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080c12">
+  <title>Изи Защитник для Windows — как установить</title>
+  <style>
+    :root { color-scheme: dark; --ground: #080c12; --surface: #111720; --high: #1b232e; --line: #1f2731; --line2: #2a3440;
+            --text: #f2f5f8; --muted: #9aa7b5; --green: #3ee08a; --ongreen: #06210f; --warn: #ffd479; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--ground);
+           color: var(--text); line-height: 1.5; font-size: 16px; -webkit-text-size-adjust: 100%; }
+    main { max-width: 520px; margin: 0 auto; padding: 24px 16px 56px; }
+    a { color: var(--green); }
+    .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+    .brand svg { width: 60px; height: 60px; flex: none; border-radius: 15px; }
+    h1 { font-size: 26px; line-height: 1.2; margin: 0; letter-spacing: -0.3px; }
+    .brand p { margin: 2px 0 0; color: var(--muted); font-size: 15px; }
+    .lead { margin: 0 0 14px; color: var(--muted); }
+    .note { border: 1px solid var(--line2); background: var(--surface); border-radius: 14px; padding: 12px 14px; margin: 14px 0; font-size: 15px; }
+    .note b { color: var(--warn); font-weight: 600; }
+    .toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 6px; padding: 0; list-style: none; font-size: 14px; }
+    .toc li { border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; color: var(--muted); }
+    .toc b { color: var(--green); font-weight: 700; margin-right: 4px; }
+
+    .step { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 18px 16px; margin: 14px 0; }
+    .step-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .num { width: 36px; height: 36px; flex: none; border-radius: 50%; background: var(--green); color: var(--ongreen);
+           font-weight: 800; font-size: 18px; display: flex; align-items: center; justify-content: center; }
+    h2 { font-size: 20px; line-height: 1.25; margin: 0; }
+    .step p { margin: 8px 0; }
+    .step ol { margin: 8px 0; padding-left: 22px; }
+    .step li { margin: 6px 0; }
+    .q { color: var(--text); background: var(--high); border-radius: 6px; padding: 1px 6px; font-weight: 600; }
+    .muted { color: var(--muted); font-size: 14px; }
+    .once { display: inline-block; font-size: 12px; font-weight: 700; color: var(--ongreen); background: var(--green); border-radius: 999px; padding: 2px 9px; vertical-align: middle; }
+
+    .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 54px; padding: 12px 16px; margin: 12px 0 6px;
+           border-radius: 16px; border: 0; font: inherit; font-size: 18px; font-weight: 700; text-align: center; text-decoration: none; cursor: pointer; }
+    .primary { background: var(--green); color: var(--ongreen); }
+    .secondary { background: transparent; color: var(--text); border: 1px solid var(--line2); font-size: 16px; font-weight: 600; }
+    .ok { color: var(--green); font-size: 14px; margin: 4px 0 0; }
+
+    /* Схемы экранов телефона */
+    .shot { margin: 14px auto 6px; max-width: 300px; border: 1px solid var(--line2); border-radius: 22px; background: #0c1118; padding: 12px; }
+    .shot-cap { text-align: center; color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+    .win { background: #eef1f4; color: #1b1f23; border-radius: 16px; padding: 14px; font-size: 14px; line-height: 1.35; }
+    .win-title { font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+    .win-text { color: #4a5560; }
+    .win-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .chip { border-radius: 999px; padding: 8px 14px; font-weight: 700; font-size: 14px; color: #33506e; background: transparent; }
+    .hit { color: #06210f; background: var(--green); box-shadow: 0 0 0 0 rgba(62,224,138,0.7); animation: pulse 1.8s ease-out infinite; }
+    .bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #eef1f4; color: #1b1f23; border-radius: 14px; padding: 10px 10px 10px 14px; font-size: 14px; }
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #d5dbe1; font-weight: 600; }
+    .toggle { width: 46px; height: 26px; flex: none; border-radius: 13px; background: #1f9d5c; position: relative; box-shadow: 0 0 0 0 rgba(62,224,138,0.7); animation: pulse 1.8s ease-out infinite; }
+    .toggle::after { content: ""; position: absolute; right: 3px; top: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; }
+    .app { background: var(--ground); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    .power { width: 92px; height: 92px; border-radius: 50%; border: 2px solid var(--green); display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--text); background: var(--surface); }
+    .power svg { width: 30px; height: 30px; }
+    .app-add { width: 100%; border-radius: 12px; padding: 10px; text-align: center; font-weight: 700; font-size: 14px; }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(62,224,138,0.7); } 100% { box-shadow: 0 0 0 12px rgba(62,224,138,0); } }
+    @media (prefers-reduced-motion: reduce) { .hit, .toggle { animation: none; box-shadow: 0 0 0 4px rgba(62,224,138,0.35); } }
+
+    .brands { margin: 10px 0 0; padding: 0; list-style: none; font-size: 14px; }
+    .brands li { margin: 6px 0; color: var(--muted); }
+    .brands b { color: var(--text); }
+    h3 { font-size: 20px; margin: 30px 0 8px; }
+    details { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 0 14px; margin: 8px 0; }
+    summary { cursor: pointer; padding: 14px 0; font-weight: 600; }
+    details p, details ol { margin: 0 0 12px; color: var(--muted); font-size: 15px; }
+    details ol { padding-left: 20px; }
+    .done { text-align: center; border: 1px solid var(--green); background: #0f1d17; border-radius: 18px; padding: 18px 16px; margin: 14px 0; }
+    .done b { font-size: 20px; color: var(--green); }
+    .done p { margin: 6px 0 0; }
+    .foot { margin-top: 22px; }
+    .hidden { display: none; }
+  </style>
+  <style>
+    .uac { background: #eef1f4; color: #1b1f23; border-radius: 16px; padding: 14px; font-size: 14px; line-height: 1.35; }
+    .smart { background: #0a5bb5; color: #fff; border-radius: 4px; padding: 14px 14px 10px; font-size: 13px; line-height: 1.35; }
+    .smart-title { font-size: 17px; margin-bottom: 8px; }
+    .smart a { color: #fff; text-decoration: underline; }
+    .smart-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .smart .btn-win { border: 1px solid #fff; padding: 6px 12px; font-size: 13px; }
+    .smart .btn-win.hit { color: #06210f; border-color: var(--green); }
+  </style>
+</head>
+<body>
+<main>
+  <div class="brand">
+    <svg viewBox="0 0 108 108" role="img" aria-label="Значок приложения «Изи Защитник»">
+      <defs>
+        <radialGradient id="bg" cx="54" cy="54" r="62" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#16402B"/><stop offset="0.55" stop-color="#0C1A16"/><stop offset="1" stop-color="#080C12"/></radialGradient>
+        <linearGradient id="sh" x1="54" y1="24" x2="54" y2="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#62F2A6"/><stop offset="1" stop-color="#2FCB78"/></linearGradient>
+      </defs>
+      <rect width="108" height="108" fill="url(#bg)"/>
+      <g transform="translate(54 54) scale(1.3) translate(-54 -54)">
+        <path d="M54,24.500 L76,32 L76,52 C76,66 66.500,77 54,83.500 C41.500,77 32,66 32,52 L32,32 Z" fill="url(#sh)" stroke="#3EE08A" stroke-width="3" stroke-linejoin="round"/>
+        <path d="M61.070,46.570 A11,11 0 1 1 46.930,46.570" fill="none" stroke="#06210F" stroke-width="4.6" stroke-linecap="round"/>
+        <path d="M54,40.500 L54,53" fill="none" stroke="#06210F" stroke-width="4.6" stroke-linecap="round"/>
+      </g>
+    </svg>
+    <div>
+      <h1>Изи Защитник</h1>
+      <p>Как установить на компьютер с Windows</p>
+    </div>
+  </div>
+
+  <p class="lead">Шесть шагов, около трёх минут. Для Windows 10 и 11.</p>
+
+  <div id="ios" class="note hidden">
+    <b>Эта страница для компьютера.</b> Откройте её на компьютере с Windows. Для телефона Android есть <a href="ustanovka.html">своя инструкция</a>.
+  </div>
+
+  <div class="note">
+    <b>Windows покажет одно-два предупреждения — это нормально.</b> Так она реагирует на любую программу, которая не куплена в магазине Microsoft. Ниже показано, что нажимать.
+  </div>
+
+  <ul class="toc" aria-label="Шаги">
+    <li><b>1</b>Скачать</li><li><b>2</b>Запустить</li><li><b>3</b>Разрешить</li><li><b>4</b>Установить</li><li><b>5</b>Добавить</li><li><b>6</b>Включить</li>
+  </ul>
+
+  <!-- 1 -->
+  <section class="step">
+    <div class="step-head"><div class="num">1</div><h2>Скачайте программу</h2></div>
+    <p>Нажмите зелёную кнопку. Файл весит <span id="size"></span>.</p>
+    <a id="download" class="btn primary" href="#">Скачать для Windows</a>
+    <p><b>Браузер Edge может придержать файл.</b> Справа вверху появится значок загрузок с жёлтым треугольником. Нажмите его, у файла нажмите <span class="q">…</span> → <span class="q">Сохранить</span>, затем <span class="q">Показать больше</span> → <span class="q">Всё равно сохранить</span>.</p>
+    <p class="muted">В Chrome: у загрузки нажмите <span class="q">Сохранить</span> или <span class="q">Всё равно скачать</span>.</p>
+  </section>
+
+  <!-- 2 -->
+  <section class="step">
+    <div class="step-head"><div class="num">2</div><h2>Запустите скачанный файл</h2></div>
+    <p>Нажмите на файл в списке загрузок браузера. Или откройте папку <span class="q">Загрузки</span> и дважды нажмите на <span class="q">izi-zashchitnik-windows.exe</span>.</p>
+    <p>Появится синее окно «Система Windows защитила ваш компьютер»:</p>
+    <ol>
+      <li>Нажмите ссылку <span class="q">Подробнее</span>.</li>
+      <li>Нажмите кнопку <span class="q">Выполнить в любом случае</span>.</li>
+    </ol>
+    <div class="shot" aria-hidden="true">
+      <div class="smart">
+        <div class="smart-title">Система Windows защитила ваш компьютер</div>
+        <div>Фильтр SmartScreen предотвратил запуск неопознанного приложения.</div>
+        <div style="margin-top: 6px">Приложение: izi-zashchitnik-windows.exe<br>Издатель: Неизвестный издатель</div>
+        <div class="smart-row"><span class="btn-win hit chip">Выполнить в любом случае</span><span class="btn-win chip" style="color:#fff">Не выполнять</span></div>
+      </div>
+      <p class="shot-cap">Кнопка «Выполнить в любом случае» появляется после нажатия «Подробнее».</p>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="step">
+    <div class="step-head"><div class="num">3</div><h2>Разрешите изменения</h2></div>
+    <p>Windows спросит: «Разрешить этому приложению вносить изменения на вашем устройстве?» Нажмите <span class="q">Да</span>.</p>
+    <div class="shot" aria-hidden="true">
+      <div class="uac">
+        <div class="win-title">Разрешить этому приложению вносить изменения на вашем устройстве?</div>
+        <div class="win-text">Изи Защитник · Издатель: неизвестно</div>
+        <div class="win-row"><span class="chip hit">Да</span><span class="chip">Нет</span></div>
+      </div>
+      <p class="shot-cap">Если Windows попросит пароль, введите пароль от этого компьютера.</p>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="step">
+    <div class="step-head"><div class="num">4</div><h2>Установите</h2></div>
+    <p>Откроется установщик. Нажмите <span class="q">Далее</span>, потом <span class="q">Готово</span>. Галочку «Запустить „Изи Защитник“» оставьте — программа откроется сама.</p>
+    <p class="muted">На рабочем столе появится значок — зелёный щит «Изи Защитник».</p>
+  </section>
+
+  <!-- 5 -->
+  <section class="step">
+    <div class="step-head"><div class="num">5</div><h2>Добавьте подключение</h2></div>
+    <ol>
+      <li id="add-auto" class="hidden">В программе нажмите кнопку <span class="q">Добавить</span>. Ваше подключение появится само: ссылка скопировалась, когда вы нажимали «Скачать».</li>
+      <li id="add-manual" class="hidden">Скопируйте ссылку, которую вам прислали. Потом в программе нажмите кнопку <span class="q">Добавить</span> — ссылка подставится сама.</li>
+    </ol>
+    <div id="add-fallback" class="hidden">
+      <p><b>Подключение не появилось?</b> Нажмите одну из кнопок ниже, когда программа уже установлена.</p>
+      <a id="add" class="btn secondary" href="#">Добавить подключение в программу</a>
+      <button id="copy" class="btn secondary" type="button">Скопировать ссылку ещё раз</button>
+      <p id="copied" class="ok hidden">Ссылка скопирована. Откройте «Изи Защитник» и нажмите «Добавить».</p>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section class="step">
+    <div class="step-head"><div class="num">6</div><h2>Включите защиту</h2></div>
+    <p>Нажмите большую круглую кнопку <span class="q">Включить</span>. Через несколько секунд она станет зелёной, под ней появится «Защита включена».</p>
+  </section>
+
+  <div class="done">
+    <b>Готово</b>
+    <p>Чтобы выключить, нажмите ту же кнопку. Пока защита включена, крестик сворачивает окно, а не закрывает его.</p>
+  </div>
+
+  <h3>Если что-то пошло не так</h3>
+
+  <details>
+    <summary>При каждом запуске Windows спрашивает «Разрешить изменения?»</summary>
+    <p>Так и должно быть: программе нужны права администратора, чтобы защищать весь компьютер, а не только браузер. Нажимайте «Да».</p>
+  </details>
+  <details>
+    <summary>Файл не скачивается или называется .crdownload</summary>
+    <p>Загрузка не закончилась: браузер ждёт вашего разрешения. Откройте список загрузок браузера (значок со стрелкой справа вверху) и выберите «Сохранить» → «Всё равно сохранить». Недокачанный файл .crdownload можно удалить.</p>
+  </details>
+  <details>
+    <summary>Антивирус удалил файл или не даёт запустить</summary>
+    <p>Так бывает с новыми программами без платной подписи. Скачивайте файл только с этой страницы. Если антивирус удалил его, добавьте файл в исключения антивируса и скачайте ещё раз.</p>
+  </details>
+  <details>
+    <summary>Нажал «Включить», а программа пишет ошибку</summary>
+    <p>Выключите на компьютере другие похожие программы (другие VPN, прокси) и попробуйте ещё раз. Если не помогло, в программе нажмите «Для мастера» → «Журнал работы» и пришлите нам текст оттуда.</p>
+  </details>
+  <details>
+    <summary>Защита включена, но сайты не открываются</summary>
+    <p>Нажмите строку «Сервер» под большой кнопкой и выберите другой сервер. Если не помогло, выключите и снова включите защиту.</p>
+  </details>
+  <details>
+    <summary>Компьютер на процессоре ARM (Surface, Windows на Маке)</summary>
+    <p>Для таких компьютеров есть отдельная версия: <a href="https://github.com/rovshan008-dot/izi-zashchitnik/releases/download/windows-v0.1.1/IziZashchitnik-Windows-ARM-0.1.1-setup.exe">скачать для ARM</a>. Узнать процессор: «Параметры» → «Система» → «О системе», строка «Тип системы».</p>
+  </details>
+
+  <p class="muted foot">Не получилось? Напишите нам: кнопка «Поддержка» есть <a href="./">на главной странице</a>.</p>
+</main>
+<script>
+  (function () {
+    // Файл приложения лежит рядом с этой страницей. Его кладёт и обновляет izi_site_patch.py
+    // (команды apply и apk), поэтому при новой сборке саму страницу менять не нужно.
+    var APK_URL = 'izi-zashchitnik-windows.exe';
+    var APK_SIZE = 'около 17 МБ';
+
+    var params = new URLSearchParams(location.search);
+    var url = (params.get('url') || '').trim();
+    var name = (params.get('name') || '').trim();
+    // Принимаем только обычные ссылки http/https.
+    var hasLink = /^https?:\/\/[^\s"'<>]+$/i.test(url);
+
+    function byId(id) { return document.getElementById(id); }
+    function show(id) { byId(id).classList.remove('hidden'); }
+
+    // Кладём ссылку-подписку в буфер обмена: кнопка «Добавить» в приложении возьмёт её оттуда.
+    function copyLink(done) {
+      if (!hasLink) { return; }
+      var finish = function () { if (done) { done(); } };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(finish, function () { legacyCopy(finish); });
+      } else {
+        legacyCopy(finish);
+      }
+    }
+    function legacyCopy(finish) {
+      var field = document.createElement('textarea');
+      field.value = url;
+      field.setAttribute('readonly', '');
+      field.style.position = 'fixed';
+      field.style.opacity = '0';
+      document.body.appendChild(field);
+      field.select();
+      try { if (document.execCommand('copy')) { finish(); } } catch (e) {}
+      document.body.removeChild(field);
+    }
+
+    byId('size').textContent = APK_SIZE;
+    var download = byId('download');
+    download.setAttribute('href', APK_URL);
+    download.addEventListener('click', function () { copyLink(); });
+
+    if (hasLink) {
+      var deepLink = 'izi-zashchitnik://add?url=' + encodeURIComponent(url);
+      if (name) { deepLink += '&name=' + encodeURIComponent(name); }
+      byId('add').setAttribute('href', deepLink);
+      byId('copy').addEventListener('click', function () { copyLink(function () { show('copied'); }); });
+      show('add-auto');
+      show('add-fallback');
+    } else {
+      show('add-manual');
+    }
+
+    if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) { show('ios'); }
+  })();
+</script>
+</body>
+</html>
