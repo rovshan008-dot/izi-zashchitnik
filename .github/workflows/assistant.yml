@@ -51,6 +51,27 @@ jobs:
         if: steps.ver.outputs.build == 'true'
         with:
           gradle-version: "8.10.2"
+      - name: Кэш модели «Привет, Изи»
+        if: steps.ver.outputs.build == 'true'
+        uses: actions/cache@v4
+        with:
+          path: assistant/app/src/main/assets/model-ru
+          key: vosk-model-small-ru-0.22
+      - name: Модель распознавания (Vosk, русская, 45 МБ)
+        if: steps.ver.outputs.build == 'true'
+        run: |
+          if [ ! -f app/src/main/assets/model-ru/uuid ]; then
+            curl -fsSL --retry 3 -o /tmp/m.zip https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip
+            rm -rf /tmp/m && unzip -q /tmp/m.zip -d /tmp/m
+            mkdir -p app/src/main/assets
+            rm -rf app/src/main/assets/model-ru
+            mv /tmp/m/vosk-model-small-ru-0.22 app/src/main/assets/model-ru
+            echo "vosk-model-small-ru-0.22" > app/src/main/assets/model-ru/uuid
+          fi
+          find app/src/main/assets/model-ru -type f | head -30
+          du -sh app/src/main/assets/model-ru
+          grep -c . app/src/main/assets/model-ru/graph/words.txt 2>/dev/null || true
+          grep -nE "^(изи|из|иззи|изя|привет) " app/src/main/assets/model-ru/graph/words.txt 2>/dev/null || true
       - name: Ключ подписи
         if: steps.ver.outputs.build == 'true'
         env:

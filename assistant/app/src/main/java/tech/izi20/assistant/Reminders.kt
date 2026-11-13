@@ -125,5 +125,24 @@ class ReminderReceiver : BroadcastReceiver() {
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         Reminders.rescheduleAll(ctx)
+        // После перезагрузки Android не даёт включить микрофон в фоне — просим открыть Изи один раз
+        if (WakeService.enabled(ctx)) {
+            if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) return
+            Reminders.ensureChannel(ctx)
+            val open = PendingIntent.getActivity(
+                ctx, 5, Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val n = NotificationCompat.Builder(ctx, Reminders.CHANNEL)
+                .setSmallIcon(R.drawable.ic_stat_izi)
+                .setContentTitle("Включить «Привет, Изи»?")
+                .setContentText("Телефон перезагрузился. Нажми, чтобы Изи снова слушал")
+                .setAutoCancel(true)
+                .setContentIntent(open)
+                .build()
+            if (Build.VERSION.SDK_INT < 33 ||
+                ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            ) NotificationManagerCompat.from(ctx).notify(5, n)
+        }
     }
 }

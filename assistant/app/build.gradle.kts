@@ -32,6 +32,7 @@ android {
         versionCode = versionProps.getProperty("VERSION_CODE").toInt()
         versionName = versionProps.getProperty("VERSION_NAME")
         base.archivesName.set("Izi-${versionName}")
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     signingConfigs {
@@ -61,6 +62,7 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    androidResources { noCompress += listOf("fst", "mdl", "int", "conf", "mat", "ie", "stats", "dubm") }
     lint { checkReleaseBuilds = false; abortOnError = false }
     dependenciesInfo { includeInApk = false; includeInBundle = false }
 }
@@ -75,4 +77,7 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    // «Привет, Изи»: офлайн-распознавание Vosk (Apache 2.0)
+    implementation("com.alphacephei:vosk-android:0.3.47@aar")
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
 }

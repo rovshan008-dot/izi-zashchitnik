@@ -8,6 +8,8 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.speech.SpeechRecognizer
 import android.util.Base64
 import androidx.activity.ComponentActivity
@@ -106,6 +108,8 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_LISTEN = "izi_listen"
+        const val EXTRA_FROM_WAKE = "izi_from_wake"
+        @Volatile var visible = false
     }
 
     private val prefs by lazy { getSharedPreferences("izi", MODE_PRIVATE) }
@@ -115,6 +119,10 @@ class MainActivity : ComponentActivity() {
     private var level by mutableFloatStateOf(0f)
     private var heard by mutableStateOf("")
     private var serverVoice by mutableStateOf(true)
+    private var wakeOn by mutableStateOf(false)
+    private var pendingWake = false
+    private var wakeSession = false
+    private var lastAction = 0L
     private val messages = mutableStateListOf<Msg>()
 
     private var useServerStt = false
@@ -131,6 +139,10 @@ class MainActivity : ComponentActivity() {
         val text = pendingText
         pendingText = null
         if (text != null && granted) handleText(text, echo = false)
+        if (pendingWake) {
+            pendingWake = false
+            if (hasMic()) enableWake()
+        }
         if (pendingListen) {
             pendingListen = false
             if (hasMic()) startListening()
@@ -141,6 +153,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         token = prefs.getString("token", null)
         serverVoice = prefs.getBoolean("server_voice", true)
+        wakeOn = WakeService.enabled(this)
         Reminders.ensureChannel(this)
 
         listener = Listener(
@@ -178,8 +191,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onPause() {
+        visible = false
+        // микрофон отдаём обратно «Привет, Изи»
+        if (phase == Phase.Listening) { listener.cancel(); recorder.cancel(); phase = Phase.Idle; heard = ""; level = 0f }
+        WakeService.send(this, WakeService.ACTION_RESUME)
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
+        visible = true
+        wakeOn = WakeService.enabled(this)
+        if (wakeOn && token != null) {
+            // пока Изи на экране, микрофон у него — фоновое ожидание на паузе
+            WakeService.startFromForeground(this, WakeService.ACTION_PAUSE)
+            askWakeExtras()
+        }
         if (token != null && autoListen) {
             autoListen = false
             lifecycleScope.launch { delay(300); startListening() }
@@ -195,6 +223,13 @@ class MainActivity : ComponentActivity() {
 
     private fun readIntent(i: Intent?) {
         if (i == null) return
+        val fromWake = i.getBooleanExtra(EXTRA_FROM_WAKE, false)
+        wakeSession = fromWake
+        if (Build.VERSION.SDK_INT >= 27) {
+            // по «Привет, Изи» показываемся и на заблокированном экране; в остальных случаях — нет
+            setShowWhenLocked(fromWake)
+            setTurnScreenOn(fromWake)
+        }
         if (i.action == Intent.ACTION_ASSIST || i.action == "android.intent.action.VOICE_COMMAND" ||
             i.getBooleanExtra(EXTRA_LISTEN, false)
         ) autoListen = true
@@ -215,9 +250,61 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ---------- «Привет, Изи» ----------
+
+    private fun toggleWake() {
+        if (wakeOn) {
+            WakeService.stop(this)
+            wakeOn = false
+            say("Хорошо, больше не слушаю в фоне. Зови кнопкой.")
+        } else {
+            if (!hasMic()) {
+                pendingWake = true
+                askPerms.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+                return
+            }
+            enableWake()
+        }
+    }
+
+    private fun enableWake() {
+        WakeService.setEnabled(this, true)
+        wakeOn = true
+        prefs.edit().putBoolean("asked_overlay", false).putBoolean("asked_battery", false).apply()
+        WakeService.startFromForeground(this, WakeService.ACTION_PAUSE)
+        say("Готово! Теперь скажи «Привет, Изи», когда я свёрнут. Сейчас попрошу пару разрешений, чтобы я мог открываться сам.")
+        askWakeExtras()
+    }
+
+    /** Разрешения, без которых «Привет, Изи» работает плохо: открываться поверх приложений и не засыпать. */
+    private fun askWakeExtras() {
+        if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this) && !prefs.getBoolean("asked_overlay", false)) {
+            prefs.edit().putBoolean("asked_overlay", true).apply()
+            lifecycleScope.launch {
+                delay(3500)
+                try {
+                    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                } catch (_: Exception) {}
+            }
+            return
+        }
+        val pm = getSystemService(PowerManager::class.java)
+        if (Build.VERSION.SDK_INT >= 23 && pm != null && !pm.isIgnoringBatteryOptimizations(packageName) &&
+            !prefs.getBoolean("asked_battery", false)
+        ) {
+            prefs.edit().putBoolean("asked_battery", true).apply()
+            try {
+                @android.annotation.SuppressLint("BatteryLife")
+                val i = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
+                startActivity(i)
+            } catch (_: Exception) {}
+        }
+    }
+
     // ---------- голос ----------
 
     private fun micTap() {
+        lastAction = System.currentTimeMillis()
         when (phase) {
             Phase.Listening -> if (recorder.active) recorder.stopNow() else listener.stop()
             Phase.Speaking -> { speaker.stop(); phase = Phase.Idle }
@@ -315,7 +402,22 @@ class MainActivity : ComponentActivity() {
     private fun say(text: String, image: String? = null) {
         messages += Msg(false, text, image)
         phase = Phase.Speaking
-        speaker.speak(text, token, serverVoice) { if (phase == Phase.Speaking) phase = Phase.Idle }
+        lastAction = System.currentTimeMillis()
+        speaker.speak(text, token, serverVoice) {
+            if (phase == Phase.Speaking) phase = Phase.Idle
+            // позвали голосом — ответил и через несколько секунд тишины сам уходит в фон, как Siri
+            if (wakeSession) {
+                val mark = System.currentTimeMillis()
+                lastAction = mark
+                lifecycleScope.launch {
+                    delay(6000)
+                    if (wakeSession && visible && phase == Phase.Idle && lastAction == mark) {
+                        wakeSession = false
+                        moveTaskToBack(true)
+                    }
+                }
+            }
+        }
     }
 
     private fun logout() {
@@ -406,7 +508,13 @@ class MainActivity : ComponentActivity() {
                 Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Изи", color = Ink, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Column(Modifier.weight(1f)) {
+                    Text("Изи", color = Ink, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (wakeOn) "● слушаю «Привет, Изи»" else "«Привет, Изи» выключено — меню ⋮",
+                        color = if (wakeOn) Color(0xFF7CE0A8) else Dim, fontSize = 12.sp,
+                    )
+                }
                 Box {
                     TextButton(onClick = { menu = true }) { Text("⋮", color = Dim, fontSize = 24.sp) }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -417,6 +525,10 @@ class MainActivity : ComponentActivity() {
                                 prefs.edit().putBoolean("server_voice", serverVoice).apply()
                                 menu = false
                             },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (wakeOn) "«Привет, Изи»: включено ✓ (выключить)" else "Включить «Привет, Изи»") },
+                            onClick = { menu = false; toggleWake() },
                         )
                         DropdownMenuItem(text = { Text("Очистить экран") }, onClick = { messages.clear(); menu = false })
                         DropdownMenuItem(text = { Text("Выйти") }, onClick = { menu = false; logout() })
