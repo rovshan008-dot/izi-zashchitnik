@@ -84,6 +84,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.TextUnit
+import kotlin.math.sin
 import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -135,6 +147,7 @@ class MainActivity : ComponentActivity() {
     private var wakeSession = false
     private var lastAction = 0L
     private var pendingAsk: PhoneActions.Ask? = null
+    private var lastAsked by mutableStateOf("")
     private val messages = mutableStateListOf<Msg>()
 
     private var useServerStt = false
@@ -151,6 +164,14 @@ class MainActivity : ComponentActivity() {
         val text = pendingText
         pendingText = null
         if (text != null && granted) handleText(text, echo = false)
+        if (pendingGallery) {
+            pendingGallery = false
+            if (Photos.hasFullAccess(this)) say("Готово, теперь я вижу все фото и видео.")
+            else {
+                say("Похоже, доступ только к части фото. Открываю настройки: Разрешения, Фото и видео, «Разрешить всё».")
+                lifecycleScope.launch { delay(3500); openAppSettings() }
+            }
+        }
         if (pendingWake) {
             pendingWake = false
             if (hasMic()) enableWake()
@@ -182,12 +203,8 @@ class MainActivity : ComponentActivity() {
         if (token != null) askBasicPermissions()
 
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Bg, surface = Surface)) {
-                Box(
-                    Modifier.fillMaxSize().background(
-                        Brush.radialGradient(listOf(Color(0xFF1C1440), Bg), center = Offset(540f, 700f), radius = 1400f)
-                    )
-                ) {
+            MaterialTheme(colorScheme = darkColorScheme(primary = D.Violet, background = D.Deep, surface = Color(0xFF16131F))) {
+                Box(Modifier.fillMaxSize().background(D.background)) {
                     if (token == null) LoginScreen() else MainScreen()
                 }
             }
@@ -370,6 +387,7 @@ class MainActivity : ComponentActivity() {
         val t = text.trim()
         if (t.isEmpty()) { phase = Phase.Idle; return }
         if (echo) addMsg(Msg(true, t))
+        lastAsked = t
         if (PhoneActions.isStop(PhoneActions.normalize(t))) { pendingAsk = null; speaker.stop(); phase = Phase.Idle; return }
 
         // ответ на вопрос Изи («Отправить?» — «да»)
@@ -388,7 +406,8 @@ class MainActivity : ComponentActivity() {
     private fun showLocal(local: PhoneActions.Local, original: String) {
         if (local.needPermission != null) {
             pendingText = original
-            askPerms.launch(arrayOf(local.needPermission))
+            val p = local.needPermission
+            askPerms.launch(if (p == Photos.readPermission()) Photos.permsToAsk() else arrayOf(p))
         }
         pendingAsk = local.ask
         say(local.say, photos = local.photos)
@@ -470,7 +489,11 @@ class MainActivity : ComponentActivity() {
         ChatStore.clear(this)
     }
 
-    // ---------- экраны ----------
+    // ---------- экраны (дизайн D: Туманность + Стекло) ----------
+
+    private fun txt(size: Int, weight: Int = 400, color: Color = D.Ink, lh: Int = 0) =
+        TextStyle(fontFamily = D.Onest, fontSize = size.sp, fontWeight = FontWeight(weight), color = color,
+            lineHeight = if (lh > 0) lh.sp else TextUnit.Unspecified)
 
     @Composable
     private fun LoginScreen() {
@@ -489,189 +512,282 @@ class MainActivity : ComponentActivity() {
                     prefs.edit().putString("token", it).apply()
                     token = it
                     askBasicPermissions()
-                    say("Привет! Это я, Изи. Нажми на шар и говори.")
                 }.onFailure { error = it.message ?: "Не получилось" }
             }
         }
-        Column(
-            Modifier.fillMaxSize().systemBarsPadding().imePadding().padding(28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Orb(Phase.Idle, 0f, 150.dp) {}
-            Spacer(Modifier.height(28.dp))
-            Text("Привет! Я Изи", color = Ink, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "Чтобы я тебя узнал, напиши в Telegram боту @IZI20bot команду /web и введи сюда код из 6 цифр.",
-                color = Dim, fontSize = 16.sp, textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(16.dp))
-            TextButton(onClick = {
-                try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/IZI20bot"))) } catch (_: Exception) {}
-            }) { Text("Открыть @IZI20bot", color = VioletLight, fontSize = 16.sp) }
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = code,
-                onValueChange = { v -> code = v.filter { it.isDigit() }.take(6) },
-                singleLine = true,
-                placeholder = { Text("000000", color = Dim) },
-                textStyle = MaterialTheme.typography.headlineMedium.copy(color = Ink, textAlign = TextAlign.Center, letterSpacing = 8.sp),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { go() }),
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Violet, unfocusedBorderColor = Color(0xFF3A3550)),
-                modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth(),
-            )
-            if (error.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text(error, color = Color(0xFFFF7A8A), fontSize = 14.sp, textAlign = TextAlign.Center)
+        Column(Modifier.fillMaxSize().systemBarsPadding().imePadding().padding(horizontal = 24.dp)) {
+            Column(
+                Modifier.weight(1f).fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                NebulaOrb(150.dp)
+                Spacer(Modifier.height(26.dp))
+                Text("Привет. Я Изи.", style = txt(36, 300, lh = 42), textAlign = TextAlign.Center)
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Чтобы я тебя узнал, напиши /web боту @IZI20bot и введи код.",
+                    style = txt(16, 400, D.Dim, 23), textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(30.dp))
+                BasicTextField(
+                    value = code,
+                    onValueChange = { v -> code = v.filter { it.isDigit() }.take(6); error = ""; if (code.length == 6) go() },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { go() }),
+                    singleLine = true,
+                    textStyle = txt(1, color = Color.Transparent),
+                    cursorBrush = SolidColor(Color.Transparent),
+                    decorationBox = { inner ->
+                        Box {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                for (i in 0 until 6) {
+                                    val ch = code.getOrNull(i)?.toString() ?: ""
+                                    val active = i == code.length
+                                    Box(
+                                        Modifier.size(width = 46.dp, height = 58.dp).clip(RoundedCornerShape(14.dp))
+                                            .background(if (ch.isNotEmpty()) D.Violet.copy(alpha = 0.14f) else D.Glass)
+                                            .border(1.dp, when { ch.isNotEmpty() -> D.Violet; active -> D.Accent; else -> D.GlassLine }, RoundedCornerShape(14.dp)),
+                                        contentAlignment = Alignment.Center,
+                                    ) { Text(ch, style = txt(24, 500)) }
+                                }
+                            }
+                            Box(Modifier.size(1.dp)) { inner() }
+                        }
+                    },
+                )
+                if (error.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(error, style = txt(14, 400, D.Stop), textAlign = TextAlign.Center)
+                }
             }
-            Spacer(Modifier.height(18.dp))
-            Button(
-                onClick = { go() },
-                enabled = !busy,
-                colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth().height(54.dp),
-            ) { Text(if (busy) "Проверяю…" else "Войти", fontSize = 18.sp) }
+            Column(Modifier.fillMaxWidth().padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(
+                    Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(28.dp)).background(D.Ink)
+                        .clickable(enabled = !busy) { go() },
+                    contentAlignment = Alignment.Center,
+                ) { Text(if (busy) "Проверяю…" else "Войти", style = txt(16, 600, D.Deep)) }
+                Box(
+                    Modifier.fillMaxWidth().height(48.dp).clickable {
+                        try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/IZI20bot"))) } catch (_: Exception) {}
+                    },
+                    contentAlignment = Alignment.Center,
+                ) { Text("Получить код в Telegram", style = txt(15, 400, D.Accent)) }
+            }
+        }
+    }
+
+    @Composable
+    private fun Header(onMenu: () -> Unit, menuContent: @Composable () -> Unit) {
+        Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("ИЗИ", style = txt(13, 600, D.Dim).copy(letterSpacing = 4.sp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Box(Modifier.size(6.dp).clip(CircleShape).background(if (wakeOn) D.Green else D.Dim))
+                    Text(if (wakeOn) "Слышу «Привет, Изи»" else "«Привет, Изи» выключено", style = txt(13, 400, if (wakeOn) D.GreenText else D.Dim))
+                }
+            }
+            Box {
+                Box(
+                    Modifier.size(44.dp).clip(CircleShape).background(D.Glass).border(1.dp, D.GlassLine, CircleShape).clickable(onClick = onMenu),
+                    contentAlignment = Alignment.Center,
+                ) { Text("⋯", style = txt(20, 500, D.Soft)) }
+                menuContent()
+            }
         }
     }
 
     @Composable
     private fun MainScreen() {
-        val listState = rememberLazyListState()
         var input by remember { mutableStateOf("") }
         var menu by remember { mutableStateOf(false) }
+        val listState = rememberLazyListState()
         LaunchedEffect(messages.size) {
             if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
         }
-        Column(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
-            Row(
-                Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("Изи", color = Ink, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                    Text(
-                        if (wakeOn) "● слушаю «Привет, Изи»" else "«Привет, Изи» выключено — меню ⋮",
-                        color = if (wakeOn) Color(0xFF7CE0A8) else Dim, fontSize = 12.sp,
-                    )
-                }
-                Box {
-                    TextButton(onClick = { menu = true }) { Text("⋮", color = Dim, fontSize = 24.sp) }
+        fun send() { val t = input.trim(); if (t.isNotEmpty() && phase != Phase.Thinking) { input = ""; handleText(t) } }
+
+        Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
+                Header(onMenu = { menu = true }) {
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(
-                            text = { Text(if (serverVoice) "Голос: Изи ✓ (сменить на голос телефона)" else "Голос: телефона ✓ (сменить на голос Изи)") },
-                            onClick = {
-                                serverVoice = !serverVoice
-                                prefs.edit().putBoolean("server_voice", serverVoice).apply()
-                                menu = false
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(if (wakeOn) "«Привет, Изи»: включено ✓ (выключить)" else "Включить «Привет, Изи»") },
+                            text = { Text(if (wakeOn) "«Привет, Изи»: включено ✓" else "Включить «Привет, Изи»") },
                             onClick = { menu = false; toggleWake() },
                         )
                         DropdownMenuItem(
                             text = { Text(if (IziAccessibility.instance != null) "Изи видит экран ✓" else "Разрешить Изи видеть экран") },
                             onClick = { menu = false; openAccessibility() },
                         )
+                        DropdownMenuItem(
+                            text = { Text(if (Photos.hasFullAccess(this@MainActivity)) "Доступ к галерее: полный ✓" else "Дать полный доступ к галерее") },
+                            onClick = { menu = false; askFullGallery() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (serverVoice) "Голос: Изи ✓ (сменить на телефонный)" else "Голос: телефона ✓ (сменить на Изи)") },
+                            onClick = {
+                                serverVoice = !serverVoice
+                                prefs.edit().putBoolean("server_voice", serverVoice).apply()
+                                menu = false
+                            },
+                        )
                         DropdownMenuItem(text = { Text("Очистить экран") }, onClick = { messages.clear(); ChatStore.clear(this@MainActivity); menu = false })
                         DropdownMenuItem(text = { Text("Выйти") }, onClick = { menu = false; logout() })
                     }
                 }
-            }
 
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
                 if (messages.isEmpty()) {
-                    item {
-                        Text(
-                            "Скажи, например:\n«Поставь будильник на 7 утра»\n«Напомни через час позвонить маме»\n«Напиши Саше в Ватсап, что я опоздаю»\n«Покажи фото за вчера»\n«Отправь последнее фото маме»\n«Открой Ютуб» · «Позвони Саше»\nили спроси что угодно.",
-                            color = Dim, fontSize = 15.sp, lineHeight = 22.sp,
-                            modifier = Modifier.padding(top = 24.dp, start = 8.dp),
-                        )
+                    Column(
+                        Modifier.weight(1f).fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        NebulaOrb(208.dp, OrbMode.Idle, modifier = Modifier.clip(CircleShape).clickable { micTap() })
+                        Spacer(Modifier.height(24.dp))
+                        Text(D.greeting(), style = txt(34, 300, lh = 40))
+                        Spacer(Modifier.height(8.dp))
+                        Text("Чем помочь?", style = txt(16, 400, D.Dim))
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Chip("Будильник на 7:00") { handleText("Поставь будильник на 7:00") }
+                        Chip("Фото за вчера") { handleText("Покажи фото за вчера") }
+                        Chip("Погода завтра") { handleText("Какая погода завтра?") }
+                        Chip("Защитник включён?") { handleText("Защитник включён?") }
+                    }
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        val lastIziIndex = messages.indexOfLast { !it.me }
+                        itemsIndexed(messages) { i, m -> Exchange(m, lastIzi = !m.me && i == lastIziIndex) }
                     }
                 }
-                items(messages) { m -> Bubble(m) }
+
+                // стеклянная полоса внизу
+                Row(
+                    Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp, top = 4.dp).fillMaxWidth()
+                        .clip(RoundedCornerShape(30.dp)).background(D.Glass).border(1.dp, D.GlassLine, RoundedCornerShape(30.dp))
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    NebulaOrb(
+                        44.dp, if (phase == Phase.Speaking) OrbMode.Speak else OrbMode.Idle, glow = false,
+                        modifier = Modifier.clip(CircleShape).clickable { micTap() },
+                    )
+                    if (phase == Phase.Speaking) {
+                        Waves(Modifier.weight(1f).height(28.dp))
+                        Text("Говорю", style = txt(13, 400, D.Dim), modifier = Modifier.clickable { micTap() })
+                    } else {
+                        BasicTextField(
+                            value = input,
+                            onValueChange = { input = it },
+                            textStyle = txt(15, 400),
+                            cursorBrush = SolidColor(D.Accent),
+                            maxLines = 4,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = { send() }),
+                            modifier = Modifier.weight(1f),
+                            decorationBox = { inner ->
+                                Box(contentAlignment = Alignment.CenterStart) {
+                                    if (input.isEmpty()) Text("Спроси или скажи «Привет, Изи»", style = txt(15, 400, D.Dim), maxLines = 1)
+                                    inner()
+                                }
+                            },
+                        )
+                    }
+                    Box(
+                        Modifier.size(44.dp).clip(CircleShape).background(D.Ink)
+                            .clickable { if (input.isNotBlank()) send() else micTap() },
+                        contentAlignment = Alignment.Center,
+                    ) { Text(if (input.isNotBlank()) "↑" else "●", style = txt(if (input.isNotBlank()) 20 else 14, 600, D.Deep)) }
+                }
             }
 
-            if (heard.isNotEmpty()) {
-                Text(
-                    "«$heard»", color = VioletLight, fontStyle = FontStyle.Italic, fontSize = 15.sp,
-                    textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
-                )
-            }
-
-            Box(Modifier.fillMaxWidth().padding(top = 6.dp), contentAlignment = Alignment.Center) {
-                Orb(phase, level, 132.dp) { micTap() }
-            }
-            Text(
-                when (phase) {
-                    Phase.Idle -> "Нажми на шар и говори"
-                    Phase.Listening -> "Слушаю…"
-                    Phase.Thinking -> "Думаю…"
-                    Phase.Speaking -> "Говорю · нажми, чтобы прервать"
-                },
-                color = Dim, fontSize = 14.sp, textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 8.dp),
-            )
-
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    placeholder = { Text("Напиши Изи…", color = Dim) },
-                    maxLines = 4,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = Ink),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = {
-                        val t = input.trim(); if (t.isNotEmpty() && phase != Phase.Thinking) { input = ""; handleText(t) }
-                    }),
-                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Violet, unfocusedBorderColor = Color(0xFF2E2A40)),
-                    shape = RoundedCornerShape(18.dp),
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.size(8.dp))
-                Button(
-                    onClick = { val t = input.trim(); if (t.isNotEmpty() && phase != Phase.Thinking) { input = ""; handleText(t) } },
-                    colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White),
-                    shape = RoundedCornerShape(18.dp),
-                    modifier = Modifier.height(54.dp),
-                ) { Text("➤", fontSize = 20.sp) }
+            // слой «Слушаю» поверх всего
+            if (phase == Phase.Listening || phase == Phase.Thinking) {
+                Box(Modifier.fillMaxSize().background(D.background).clickable(enabled = false) {}) {
+                    EdgeGlow(level, Modifier.fillMaxSize())
+                    Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(if (phase == Phase.Thinking) "ДУМАЮ" else "СЛУШАЮ", style = txt(13, 600, D.Dim).copy(letterSpacing = 4.sp), modifier = Modifier.padding(top = 20.dp))
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                            NebulaOrb(236.dp, if (phase == Phase.Thinking) OrbMode.Think else OrbMode.Listen, level,
+                                modifier = Modifier.clip(CircleShape).clickable { micTap() })
+                            Spacer(Modifier.height(40.dp))
+                            val shown = if (phase == Phase.Thinking) lastAsked else heard
+                            Text(
+                                shown.ifEmpty { "Говори…" }, style = txt(28, 300, if (shown.isEmpty()) D.Dim else D.Ink, 36),
+                                textAlign = TextAlign.Center, maxLines = 5,
+                            )
+                        }
+                        Row(
+                            Modifier.padding(bottom = 36.dp).clip(RoundedCornerShape(26.dp)).background(D.Glass)
+                                .border(1.dp, D.GlassLine, RoundedCornerShape(26.dp)).clickable { micTap() }
+                                .padding(horizontal = 26.dp, vertical = 15.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Box(Modifier.size(12.dp).clip(RoundedCornerShape(3.dp)).background(D.Stop))
+                            Text(if (phase == Phase.Thinking) "Подожди секунду" else "Готово", style = txt(15, 500))
+                        }
+                    }
+                }
             }
         }
     }
 
     @Composable
-    private fun Bubble(m: Msg) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = if (m.me) Arrangement.End else Arrangement.Start) {
-            Column(
-                Modifier.widthIn(max = 300.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(if (m.me) Color(0xFF3B2C86) else Surface)
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
-            ) {
-                if (m.image != null) {
-                    RemoteImage(m.image)
-                    if (m.text.isNotBlank()) Spacer(Modifier.height(8.dp))
-                }
-                if (m.text.isNotBlank()) {
-                    SelectionContainer {
-                        Text(linkify(m.text), color = Ink, fontSize = 16.sp, lineHeight = 22.sp)
-                    }
-                }
-                if (m.photos.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
-                    PhotoGrid(m.photos)
+    private fun Chip(label: String, onClick: () -> Unit) {
+        Box(
+            Modifier.height(44.dp).clip(RoundedCornerShape(22.dp)).background(D.Glass).border(1.dp, D.GlassLine, RoundedCornerShape(22.dp))
+                .clickable(onClick = onClick).padding(horizontal = 16.dp),
+            contentAlignment = Alignment.Center,
+        ) { Text(label, style = txt(14, 400, D.Soft), maxLines = 1) }
+    }
+
+    @Composable
+    private fun Waves(modifier: Modifier) {
+        val t = rememberSeconds()
+        Canvas(modifier) {
+            val n = 14
+            val w = 3.dp.toPx()
+            val gap = (size.width - n * w) / (n - 1)
+            for (i in 0 until n) {
+                val h = size.height * (0.3f + 0.7f * ((sin(t * 7f + i * 0.9f) + 1f) / 2f) * (0.5f + 0.5f * sin(i * 1.7f).let { it * it }))
+                drawRoundRect(
+                    Brush.verticalGradient(listOf(D.Cyan, D.Violet)),
+                    topLeft = Offset(i * (w + gap), (size.height - h) / 2f),
+                    size = androidx.compose.ui.geometry.Size(w, h),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w / 2f, w / 2f),
+                )
+            }
+        }
+    }
+
+    /** Одна реплика. Вопрос — мелко и приглушённо, последний ответ Изи — крупно, старые — тише. */
+    @Composable
+    private fun Exchange(m: Msg, lastIzi: Boolean) {
+        if (m.me) {
+            Text(m.text, style = txt(15, 400, D.Dim, 21), modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+            return
+        }
+        Column(Modifier.fillMaxWidth().alpha(if (lastIzi) 1f else 0.6f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (m.image != null) RemoteImage(m.image)
+            if (m.text.isNotBlank()) {
+                SelectionContainer {
+                    Text(
+                        linkify(m.text),
+                        style = if (lastIzi && m.text.length < 260) txt(26, 300, D.Ink, 34).copy(letterSpacing = (-0.3).sp) else txt(17, 300, D.Ink, 25),
+                    )
                 }
             }
+            if (m.photos.isNotEmpty()) PhotoGrid(m.photos)
         }
     }
 
@@ -752,6 +868,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var pendingGallery = false
+
+    /** Полный доступ к галерее: фото и видео, все, а не «выбранные». */
+    private fun askFullGallery() {
+        if (Photos.hasFullAccess(this)) { say("У меня уже есть доступ ко всем фото и видео."); return }
+        pendingGallery = true
+        askPerms.launch(Photos.permsToAsk())
+    }
+
+    private fun openAppSettings() {
+        try {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        } catch (_: Exception) {}
+    }
+
     private fun openAccessibility() {
         say("Найди в списке «Изи» и включи. Если переключатель серый: Настройки, Приложения, Изи, три точки вверху, «Разрешить ограниченные настройки», и снова сюда.")
         lifecycleScope.launch {
@@ -762,14 +893,15 @@ class MainActivity : ComponentActivity() {
 
     private fun openPhoto(uri: Uri) {
         try {
-            startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "image/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+            val type = contentResolver.getType(uri) ?: "image/*"
+            startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, type).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
         } catch (_: Exception) {
             Toast.makeText(this, "Нечем открыть фото", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun sharePhoto(uri: Uri) {
-        val i = Intent(Intent.ACTION_SEND).setType("image/*").putExtra(Intent.EXTRA_STREAM, uri)
+        val i = Intent(Intent.ACTION_SEND).setType(contentResolver.getType(uri) ?: "image/*").putExtra(Intent.EXTRA_STREAM, uri)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         try { startActivity(Intent.createChooser(i, "Отправить")) } catch (_: Exception) {}
     }
@@ -820,75 +952,3 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable
-fun Orb(phase: Phase, level: Float, size: androidx.compose.ui.unit.Dp, onTap: () -> Unit) {
-    val inf = rememberInfiniteTransition(label = "orb")
-    val breathe by inf.animateFloat(
-        0f, 1f, infiniteRepeatable(tween(if (phase == Phase.Speaking) 520 else if (phase == Phase.Thinking) 900 else 2600, easing = LinearEasing), RepeatMode.Reverse),
-        label = "breathe",
-    )
-    val spin by inf.animateFloat(0f, 360f, infiniteRepeatable(tween(1400, easing = LinearEasing)), label = "spin")
-    val lv by animateFloatAsState(if (phase == Phase.Listening) level else 0f, tween(120), label = "lv")
-    val scale = when (phase) {
-        Phase.Listening -> 1f + lv * 0.22f
-        Phase.Speaking -> 0.97f + breathe * 0.08f
-        Phase.Thinking -> 0.96f + breathe * 0.04f
-        Phase.Idle -> 0.98f + breathe * 0.03f
-    }
-    Box(
-        Modifier.size(size * 1.35f).clickable(
-            interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onTap,
-        ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Canvas(Modifier.size(size * 1.35f).scale(scale)) {
-            val r = this.size.minDimension / 2f / 1.35f
-            val c = center
-            // свечение
-            drawCircle(
-                Brush.radialGradient(
-                    listOf(Violet.copy(alpha = if (phase == Phase.Idle) 0.30f else 0.55f), Color.Transparent),
-                    center = c, radius = r * 1.35f,
-                ),
-                radius = r * 1.35f, center = c,
-            )
-            // шар
-            drawCircle(
-                Brush.radialGradient(
-                    listOf(VioletLight, Violet, VioletDeep),
-                    center = Offset(c.x - r * 0.3f, c.y - r * 0.35f), radius = r * 1.25f,
-                ),
-                radius = r, center = c,
-            )
-            if (phase == Phase.Thinking) {
-                drawArc(
-                    color = Color.White.copy(alpha = 0.8f), startAngle = spin, sweepAngle = 80f, useCenter = false,
-                    topLeft = Offset(c.x - r * 1.12f, c.y - r * 1.12f),
-                    size = androidx.compose.ui.geometry.Size(r * 2.24f, r * 2.24f),
-                    style = Stroke(width = r * 0.06f),
-                )
-            }
-            // полоски голоса
-            val bars = floatArrayOf(0.30f, 0.62f, 1f, 0.62f, 0.30f)
-            val w = r * 0.11f
-            val gap = r * 0.09f
-            val total = bars.size * w + (bars.size - 1) * gap
-            var x = c.x - total / 2f
-            val amp = when (phase) {
-                Phase.Listening -> 0.45f + lv * 0.7f
-                Phase.Speaking -> 0.5f + breathe * 0.5f
-                else -> 0.5f
-            }
-            for (b in bars) {
-                val h = r * 0.9f * b * amp
-                drawRoundRect(
-                    color = Color.White,
-                    topLeft = Offset(x, c.y - h / 2f),
-                    size = androidx.compose.ui.geometry.Size(w, h),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w / 2f, w / 2f),
-                )
-                x += w + gap
-            }
-        }
-    }
-}

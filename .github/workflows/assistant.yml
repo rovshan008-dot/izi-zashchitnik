@@ -72,6 +72,19 @@ jobs:
           du -sh app/src/main/assets/model-ru
           grep -c . app/src/main/assets/model-ru/graph/words.txt 2>/dev/null || true
           grep -nE "^(изи|из|иззи|изя|привет) " app/src/main/assets/model-ru/graph/words.txt 2>/dev/null || true
+      - name: Шрифт Onest (OFL)
+        if: steps.ver.outputs.build == 'true'
+        run: |
+          mkdir -p app/src/main/res/font
+          F=app/src/main/res/font/onest.ttf
+          curl -fsSL --retry 3 -o "$F" "https://github.com/google/fonts/raw/main/ofl/onest/Onest%5Bwght%5D.ttf" || true
+          if ! head -c 4 "$F" 2>/dev/null | od -An -tx1 | grep -q "00 01 00 00"; then
+            echo "С GitHub не скачалось — беру с Google Fonts"
+            URL=$(curl -fsSL "https://fonts.googleapis.com/css2?family=Onest:wght@300..600" | grep -o 'https://[^)]*' | head -1)
+            curl -fsSL --retry 3 -o "$F" "$URL"
+          fi
+          ls -la "$F"
+          head -c 4 "$F" | od -An -tx1
       - name: Ключ подписи
         if: steps.ver.outputs.build == 'true'
         env:

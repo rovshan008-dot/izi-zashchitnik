@@ -41,44 +41,82 @@ import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 
-private val IZI_COLORS = intArrayOf(0xFF8B6CFF.toInt(), 0xFFFF5FA2.toInt(), 0xFF3FD0FF.toInt(), 0xFF7CE0A8.toInt())
+private val IZI_COLORS = intArrayOf(0xFF2EC8FF.toInt(), 0xFF7C5CFF.toInt(), 0xFFFF4F9A.toInt(), 0xFFFFB36B.toInt())
 
 private fun withAlpha(c: Int, a: Int) = (c and 0x00FFFFFF) or (a shl 24)
 
-/** Переливающийся шар как у Siri: цветные облака кружатся, растут от голоса, вихрем крутятся, пока Изи думает. */
+/** Шар дизайна D: тёмное ядро, внутри кружат фиолетовое, розовое и голубое облака, блик и тонкий ободок. */
 class SiriOrbView(ctx: Context) : View(ctx) {
     enum class Mode { LISTEN, THINK, SPEAK }
 
     var mode = Mode.LISTEN
     var level = 0f
+    var glow = true
     private var lv = 0f
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val rim = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0x24FFFFFF }
+    private val clip = android.graphics.Path()
     private val t0 = SystemClock.uptimeMillis()
+    private val cols = intArrayOf(0xFF7C5CFF.toInt(), 0xFFFF4F9A.toInt(), 0xFF2EC8FF.toInt())
+    private val periods = floatArrayOf(7f, -9f, 6f)
 
     override fun onDraw(c: Canvas) {
         val t = (SystemClock.uptimeMillis() - t0) / 1000f
         lv += (level - lv) * 0.25f
         val cx = width / 2f
         val cy = height / 2f
-        val base = min(width, height) / 2f * 0.52f
-        val speed = when (mode) { Mode.THINK -> 2.6f; Mode.SPEAK -> 1.4f; Mode.LISTEN -> 1f }
-        val speak = if (mode == Mode.SPEAK) 0.10f * (1f + sin(t * 8f)) else 0f
-
-        paint.shader = RadialGradient(cx, cy, base * 2f, intArrayOf(withAlpha(IZI_COLORS[0], 0x70), 0), null, Shader.TileMode.CLAMP)
-        c.drawCircle(cx, cy, base * 2f, paint)
-
-        for (i in IZI_COLORS.indices) {
-            val ang = t * (0.9f + i * 0.37f) * speed + i * 1.57f
-            val wob = base * (0.16f + 0.32f * lv + speak)
-            val x = cx + cos(ang) * wob
-            val y = cy + sin(ang * 1.3f) * wob
-            val r = base * (0.82f + 0.30f * lv + 0.07f * sin(t * 2.1f + i) + speak)
-            paint.shader = RadialGradient(x, y, r, intArrayOf(withAlpha(IZI_COLORS[i], 0xD0), withAlpha(IZI_COLORS[i], 0)), null, Shader.TileMode.CLAMP)
-            c.drawCircle(x, y, r, paint)
+        val k = if (glow) 1.45f else 1f
+        val speed = when (mode) { Mode.THINK -> 2.6f; Mode.SPEAK -> 1.6f; Mode.LISTEN -> 1.5f }
+        val pulse = when (mode) { Mode.SPEAK -> 0.035f * (1f + sin(t * 9f)); Mode.LISTEN -> 0.18f * lv; Mode.THINK -> 0.02f * sin(t * 4f) }
+        val r = min(width, height) / 2f / k * (1f + pulse)
+        if (glow) {
+            paint.shader = RadialGradient(cx, cy, r * 1.45f, intArrayOf(withAlpha(cols[0], (0x6B + 0x40 * lv).toInt().coerceAtMost(255)), withAlpha(cols[0], 0x1F), 0), floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP)
+            c.drawCircle(cx, cy, r * 1.45f, paint)
         }
-        paint.shader = RadialGradient(cx - base * 0.25f, cy - base * 0.3f, base * 0.9f,
-            intArrayOf(0x88FFFFFF.toInt(), 0x00FFFFFF), null, Shader.TileMode.CLAMP)
-        c.drawCircle(cx, cy, base * 0.9f, paint)
+        val save = c.saveLayer(cx - r, cy - r, cx + r, cy + r, null)
+        clip.reset(); clip.addCircle(cx, cy, r, android.graphics.Path.Direction.CW)
+        c.clipPath(clip)
+        paint.shader = null; paint.color = 0xFF100C24.toInt()
+        c.drawCircle(cx, cy, r, paint)
+        paint.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SCREEN)
+        for (i in cols.indices) {
+            val ang = t * speed * (6.2832f / periods[i]) + i * 2.1f
+            val wob = r * (0.12f + 0.22f * lv + if (mode == Mode.THINK) 0.08f else 0f)
+            val x = cx + cos(ang) * wob
+            val y = cy + sin(ang * 1.2f) * wob
+            val br = r * (0.95f + 0.2f * lv)
+            paint.shader = RadialGradient(x, y, br, intArrayOf(withAlpha(cols[i], 0xF2), withAlpha(cols[i], 0)), null, Shader.TileMode.CLAMP)
+            c.drawCircle(x, y, br, paint)
+        }
+        paint.xfermode = null
+        paint.shader = RadialGradient(cx - r * 0.32f, cy - r * 0.48f, r, intArrayOf(0x8CFFFFFF.toInt(), 0x00FFFFFF), floatArrayOf(0f, 0.32f), Shader.TileMode.CLAMP)
+        c.drawCircle(cx, cy, r, paint)
+        c.restoreToCount(save)
+        paint.shader = null
+        rim.strokeWidth = resources.displayMetrics.density
+        c.drawCircle(cx, cy, r, rim)
+        postInvalidateOnAnimation()
+    }
+}
+
+/** Волна голоса, пока Изи говорит или слушает. */
+class WavesView(ctx: Context) : View(ctx) {
+    var active = true
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val t0 = SystemClock.uptimeMillis()
+    private val dp = ctx.resources.displayMetrics.density
+    override fun onDraw(c: Canvas) {
+        val t = (SystemClock.uptimeMillis() - t0) / 1000f
+        val n = 10
+        val w = 3 * dp
+        val gap = (width - n * w) / (n - 1)
+        paint.shader = android.graphics.LinearGradient(0f, 0f, 0f, height.toFloat(), 0xFF2EC8FF.toInt(), 0xFF7C5CFF.toInt(), Shader.TileMode.CLAMP)
+        for (i in 0 until n) {
+            val amp = if (active) (0.3f + 0.7f * ((sin(t * 7f + i * 0.9f) + 1f) / 2f)) else 0.2f
+            val h = height * amp
+            val x = i * (w + gap)
+            c.drawRoundRect(x, (height - h) / 2f, x + w, (height + h) / 2f, w / 2, w / 2, paint)
+        }
         postInvalidateOnAnimation()
     }
 }
@@ -154,6 +192,9 @@ class VoiceOverlay(
     private lateinit var heard: TextView
     private lateinit var answer: TextView
     private lateinit var picture: ImageView
+    private lateinit var bubble: LinearLayout
+    private lateinit var chips: LinearLayout
+    private lateinit var waves: WavesView
 
     private fun px(v: Float) = (v * dp).toInt()
 
@@ -181,50 +222,72 @@ class VoiceOverlay(
         wm.addView(glow, gp)
 
         card = FrameLayout(ctx)
-        val box = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(px(18f), px(10f), px(18f), px(14f))
-            background = GradientDrawable().apply {
-                cornerRadius = px(30f).toFloat()
-                setColor(0xF0100E1A.toInt())
-                setStroke(px(1f), 0x553A3260)
-            }
+        val font = try { androidx.core.content.res.ResourcesCompat.getFont(ctx, R.font.onest) } catch (_: Exception) { null }
+        fun styled(tv: TextView, sp: Float, color: Int, weight: Int) = tv.apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, sp); setTextColor(color)
+            if (font != null) typeface = font
+            if (Build.VERSION.SDK_INT >= 26) fontVariationSettings = "'wght' $weight"
         }
-        orb = SiriOrbView(ctx)
-        box.addView(orb, LinearLayout.LayoutParams(px(118f), px(118f)))
-        heard = TextView(ctx).apply {
-            setTextColor(0xFFC9B8FF.toInt()); setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            gravity = Gravity.CENTER; text = "Слушаю…"
+        fun glassBg(radius: Float) = GradientDrawable().apply {
+            cornerRadius = px(radius).toFloat()
+            setColor(0xFF0E0C1A.toInt())
+            setStroke(px(1f), 0x1AFFFFFF)
         }
-        box.addView(heard, LinearLayout.LayoutParams(-1, -2))
-        picture = ImageView(ctx).apply { visibility = View.GONE; adjustViewBounds = true; scaleType = ImageView.ScaleType.FIT_CENTER }
-        box.addView(picture, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(8f) })
-        answer = TextView(ctx).apply {
-            setTextColor(0xFFECE9F5.toInt()); setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            setLineSpacing(0f, 1.15f); setTextIsSelectable(false)
-            autoLinkMask = Linkify.WEB_URLS; movementMethod = LinkMovementMethod.getInstance()
-            setLinkTextColor(0xFFC9B8FF.toInt())
-        }
-        // длинный ответ прокручивается внутри окошка, целиком он есть в чате Изи
-        answer.maxHeight = px(230f)
-        box.addView(answer, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(6f) })
+        val col = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
 
-        val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        fun chip(label: String, onClick: () -> Unit) = TextView(ctx).apply {
-            text = label; setTextColor(0xFFC9B8FF.toInt()); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            setPadding(px(14f), px(8f), px(14f), px(8f))
-            background = GradientDrawable().apply { cornerRadius = px(14f).toFloat(); setColor(0xFF2A2440.toInt()) }
+        // карточка с вопросом и ответом
+        bubble = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(px(20f), px(16f), px(20f), px(18f))
+            background = glassBg(28f)
+            elevation = px(12f).toFloat()
+        }
+        heard = styled(TextView(ctx), 13f, 0xFF8E89A6.toInt(), 400).apply { text = "Слушаю…" }
+        bubble.addView(heard, LinearLayout.LayoutParams(-1, -2))
+        picture = ImageView(ctx).apply { visibility = View.GONE; adjustViewBounds = true; scaleType = ImageView.ScaleType.FIT_CENTER }
+        bubble.addView(picture, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(10f) })
+        answer = styled(TextView(ctx), 21f, 0xFFF2F1F7.toInt(), 300).apply {
+            setLineSpacing(0f, 1.18f); visibility = View.GONE
+            autoLinkMask = Linkify.WEB_URLS; movementMethod = LinkMovementMethod.getInstance()
+            setLinkTextColor(0xFFB9A8FF.toInt())
+            // длинный ответ прокручивается внутри окошка, целиком он есть в чате Изи
+            maxHeight = px(250f)
+        }
+        bubble.addView(answer, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(8f) })
+        chips = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; visibility = View.GONE }
+        fun chip(label: String, onClick: () -> Unit) = styled(TextView(ctx), 13f, 0xFFE9E7F2.toInt(), 400).apply {
+            text = label; gravity = Gravity.CENTER
+            minHeight = px(40f); setPadding(px(14f), 0, px(14f), 0)
+            background = GradientDrawable().apply { cornerRadius = px(20f).toFloat(); setColor(0x0DFFFFFF); setStroke(px(1f), 0x1AFFFFFF) }
             setOnClickListener { onClick() }
         }
-        row.addView(chip("Открыть Изи") { openApp() })
-        row.addView(View(ctx), LinearLayout.LayoutParams(px(10f), 1))
-        row.addView(chip("Ещё вопрос") { closeJob?.cancel(); speaker.stop(); listen() })
-        row.addView(View(ctx), LinearLayout.LayoutParams(px(10f), 1))
-        row.addView(chip("✕") { close() })
-        box.addView(row, LinearLayout.LayoutParams(-2, -2).apply { topMargin = px(10f) })
+        chips.addView(chip("Подробнее в Изи") { openApp() }, LinearLayout.LayoutParams(-2, px(40f)))
+        chips.addView(View(ctx), LinearLayout.LayoutParams(px(8f), 1))
+        chips.addView(chip("Ещё вопрос") { closeJob?.cancel(); speaker.stop(); listen() }, LinearLayout.LayoutParams(-2, px(40f)))
+        bubble.addView(chips, LinearLayout.LayoutParams(-2, -2).apply { topMargin = px(14f) })
+        col.addView(bubble, LinearLayout.LayoutParams(-1, -2))
 
-        card.addView(box, FrameLayout.LayoutParams(-1, -2).apply { setMargins(px(10f), 0, px(10f), px(14f)) })
+        // полоса с шаром, волной и крестиком
+        val pill = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(px(7f), px(7f), px(8f), px(7f))
+            background = glassBg(32f)
+            elevation = px(12f).toFloat()
+        }
+        orb = SiriOrbView(ctx).apply { glow = false; setOnClickListener { closeJob?.cancel(); speaker.stop(); listen() } }
+        pill.addView(orb, LinearLayout.LayoutParams(px(46f), px(46f)))
+        waves = WavesView(ctx)
+        pill.addView(waves, LinearLayout.LayoutParams(px(92f), px(26f)).apply { leftMargin = px(12f); rightMargin = px(12f) })
+        val x = styled(TextView(ctx), 16f, 0xFFF2F1F7.toInt(), 500).apply {
+            text = "✕"; gravity = Gravity.CENTER
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x14FFFFFF) }
+            setOnClickListener { close() }
+            contentDescription = "Закрыть"
+        }
+        pill.addView(x, LinearLayout.LayoutParams(px(44f), px(44f)))
+        col.addView(pill, LinearLayout.LayoutParams(-2, -2).apply { topMargin = px(12f) })
+
+        card.addView(col, FrameLayout.LayoutParams(-1, -2).apply { setMargins(px(14f), 0, px(14f), px(28f)) })
         val cp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT, overlayType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
@@ -276,9 +339,16 @@ class VoiceOverlay(
         if (closed) return
         orb.mode = SiriOrbView.Mode.LISTEN
         heard.text = "Слушаю…"
+        answer.visibility = View.GONE
+        chips.visibility = View.GONE
+        picture.visibility = View.GONE
+        waves.active = true
         val l = Listener(
             ctx,
-            onPartial = { heard.text = "«$it»" },
+            onPartial = {
+                // пока говоришь — твои слова крупно, как на экране «Слушаю»
+                answer.setTextColor(0xFFB9A8FF.toInt()); answer.text = it; answer.visibility = View.VISIBLE
+            },
             onLevel = { orb.level = it; glow.level = it },
             onFinal = { orb.level = 0f; glow.level = 0f; handle(it) },
             onFail = { code ->
@@ -292,7 +362,8 @@ class VoiceOverlay(
     }
 
     private fun handle(text: String) {
-        heard.text = "«$text»"
+        heard.text = text
+        answer.visibility = View.GONE
         ChatStore.add(ctx, Msg(true, text))
         val n = PhoneActions.normalize(text)
         if (PhoneActions.isStop(n)) { close(); return }
@@ -327,7 +398,7 @@ class VoiceOverlay(
             return
         }
         orb.mode = SiriOrbView.Mode.THINK
-        heard.text = "Смотрю на экран…"
+        status("Смотрю на экран…")
         val (app, screenText) = acc.screenText()
         // прячем окошко на долю секунды, чтобы оно не попало в снимок
         setVisible(false)
@@ -352,11 +423,18 @@ class VoiceOverlay(
         }
     }
 
+    /** Служебная строка («Думаю…») на месте ответа, приглушённо. Вопрос сверху остаётся. */
+    private fun status(text: String) {
+        answer.setTextColor(0xFF8E89A6.toInt())
+        answer.text = text
+        answer.visibility = View.VISIBLE
+    }
+
     private fun askBrain(call: (String) -> IziApi.Reply) {
         val tok = prefs.getString("token", null)
         if (tok == null) { reply("Сначала войди в Изи"); return }
         orb.mode = SiriOrbView.Mode.THINK
-        if (heard.text.isNullOrEmpty()) heard.text = "Думаю…"
+        if (answer.visibility != View.VISIBLE) status("Думаю…")
         scope.launch {
             val r = withContext(Dispatchers.IO) { call(tok) }
             when {
@@ -371,7 +449,11 @@ class VoiceOverlay(
         if (closed) return
         val stored = ChatStore.storeImage(ctx, image)
         ChatStore.add(ctx, Msg(false, text, stored))
+        answer.setTextColor(0xFFF2F1F7.toInt())
         answer.text = text
+        answer.visibility = View.VISIBLE
+        chips.visibility = View.VISIBLE
+        waves.active = true
         showPicture(stored)
         orb.mode = SiriOrbView.Mode.SPEAK
         speaker.speak(text, prefs.getString("token", null), prefs.getBoolean("server_voice", true)) {
@@ -379,7 +461,7 @@ class VoiceOverlay(
             if (pendingAsk != null) { listen(); return@speak }
             orb.mode = SiriOrbView.Mode.LISTEN
             orb.level = 0f
-            heard.text = "Нажми «Ещё вопрос» или просто убери окно"
+            waves.active = false
             closeLater(if (image != null || text.length > 160) 9000 else 4500)
         }
     }

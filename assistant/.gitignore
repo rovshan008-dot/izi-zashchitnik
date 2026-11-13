@@ -4,3 +4,4 @@ app/build/
 local.properties
 app/release.keystore
 app/src/main/assets/model-ru/
+app/src/main/res/font/onest.ttf

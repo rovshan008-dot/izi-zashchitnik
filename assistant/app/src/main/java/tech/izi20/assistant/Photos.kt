@@ -22,6 +22,15 @@ object Photos {
     fun readPermission(): String =
         if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
 
+    /** Что просить для полного доступа: фото и видео. */
+    fun permsToAsk(): Array<String> =
+        if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
+        else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+
+    fun hasFullAccess(ctx: Context): Boolean = permsToAsk().all {
+        ContextCompat.checkSelfPermission(ctx, it) == PackageManager.PERMISSION_GRANTED
+    }
+
     fun canRead(ctx: Context): Boolean {
         if (ContextCompat.checkSelfPermission(ctx, readPermission()) == PackageManager.PERMISSION_GRANTED) return true
         // Android 14: доступ «только к выбранным фото» — тоже считаем, увидим то, что разрешили
@@ -29,7 +38,7 @@ object Photos {
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
     }
 
-    private val PHOTO_WORD = Regex("(фото|фотк|фоточ|снимк|снимок|скрин|скриншот|картинк|изображен)")
+    private val PHOTO_WORD = Regex("(фото|фотк|фоточ|снимк|снимок|скрин|скриншот|картинк|изображен|видео|ролик)")
 
     fun handle(ctx: Context, t: String): Local? {
         if (!PHOTO_WORD.containsMatchIn(t)) return null
@@ -39,13 +48,14 @@ object Photos {
         if (!canRead(ctx)) return Local("Разреши Изи доступ к фото, и я покажу", readPermission())
 
         val screenshots = t.contains("скрин")
+        val video = Regex("(видео|ролик)").containsMatchIn(t)
         val one = Regex("(последн(ее|юю|ий)|последний снимок|последнее фото)").containsMatchIn(t) &&
             !Regex("последни[ех]").containsMatchIn(t)
         val count = Regex("последни[ех]\\s+(\\d+)").find(t)?.groupValues?.get(1)?.toIntOrNull()
         val (from, to, label) = period(t)
         val limit = when { one -> 1; count != null -> count.coerceIn(1, 60); else -> 30 }
-        val list = query(ctx, from, to, screenshots, limit)
-        val what = if (screenshots) "скриншот" else "фото"
+        val list = query(ctx, from, to, screenshots, limit, video)
+        val what = when { video -> "видео"; screenshots -> "скриншот"; else -> "фото" }
 
         if (list.isEmpty()) return Local("Не нашёл $what${if (label.isNotEmpty()) " $label" else ""}")
 
@@ -85,8 +95,8 @@ object Photos {
         else -> Period(null, null, "")
     }
 
-    private fun query(ctx: Context, from: Long?, to: Long?, screenshots: Boolean, limit: Int): List<Uri> {
-        val coll = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+    private fun query(ctx: Context, from: Long?, to: Long?, screenshots: Boolean, limit: Int, video: Boolean = false): List<Uri> {
+        val coll = if (video) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
         val sel = mutableListOf<String>()
         val args = mutableListOf<String>()
         // дата: когда снято, а если неизвестно — когда появилось на телефоне (в секундах)
