@@ -214,6 +214,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         visible = true
+        syncChat()
         wakeOn = WakeService.enabled(this)
         if (wakeOn && token != null) {
             // пока Изи на экране, микрофон у него — фоновое ожидание на паузе
@@ -368,7 +369,7 @@ class MainActivity : ComponentActivity() {
     private fun handleText(text: String, echo: Boolean = true) {
         val t = text.trim()
         if (t.isEmpty()) { phase = Phase.Idle; return }
-        if (echo) messages += Msg(true, t)
+        if (echo) addMsg(Msg(true, t))
         if (PhoneActions.isStop(PhoneActions.normalize(t))) { pendingAsk = null; speaker.stop(); phase = Phase.Idle; return }
 
         // ответ на вопрос Изи («Отправить?» — «да»)
@@ -407,7 +408,7 @@ class MainActivity : ComponentActivity() {
         phase = Phase.Thinking
         lifecycleScope.launch {
             val r = withContext(Dispatchers.IO) { IziApi.voice(tok, f) }
-            r.recognized?.let { messages += Msg(true, "🎤 $it") }
+            r.recognized?.let { addMsg(Msg(true, "🎤 $it")) }
             onBrainReply(r)
         }
     }
@@ -422,7 +423,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun say(text: String, image: String? = null, photos: List<Uri> = emptyList()) {
-        messages += Msg(false, text, image, photos)
+        addMsg(Msg(false, text, ChatStore.storeImage(this, image), photos))
         phase = Phase.Speaking
         lastAction = System.currentTimeMillis()
         speaker.speak(text, token, serverVoice) {
@@ -444,12 +445,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var seenVersion = -1
+
+    private fun addMsg(m: Msg) {
+        messages += m
+        ChatStore.add(this, m)
+        seenVersion = ChatStore.version
+    }
+
+    /** Подтянуть то, что Изи говорил из окошка поверх других приложений. */
+    private fun syncChat() {
+        if (seenVersion == ChatStore.version && messages.isNotEmpty()) return
+        messages.clear()
+        messages.addAll(ChatStore.all(this))
+        seenVersion = ChatStore.version
+    }
+
     private fun logout() {
         speaker.stop()
         prefs.edit().remove("token").apply()
         token = null
         phase = Phase.Idle
         messages.clear()
+        ChatStore.clear(this)
     }
 
     // ---------- экраны ----------
@@ -554,7 +572,11 @@ class MainActivity : ComponentActivity() {
                             text = { Text(if (wakeOn) "«Привет, Изи»: включено ✓ (выключить)" else "Включить «Привет, Изи»") },
                             onClick = { menu = false; toggleWake() },
                         )
-                        DropdownMenuItem(text = { Text("Очистить экран") }, onClick = { messages.clear(); menu = false })
+                        DropdownMenuItem(
+                            text = { Text(if (IziAccessibility.instance != null) "Изи видит экран ✓" else "Разрешить Изи видеть экран") },
+                            onClick = { menu = false; openAccessibility() },
+                        )
+                        DropdownMenuItem(text = { Text("Очистить экран") }, onClick = { messages.clear(); ChatStore.clear(this@MainActivity); menu = false })
                         DropdownMenuItem(text = { Text("Выйти") }, onClick = { menu = false; logout() })
                     }
                 }
@@ -661,6 +683,8 @@ class MainActivity : ComponentActivity() {
                     if (url.startsWith("data:")) {
                         val bytes = Base64.decode(url.substringAfter(","), Base64.DEFAULT)
                         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    } else if (url.startsWith("file:")) {
+                        BitmapFactory.decodeFile(Uri.parse(url).path)
                     } else {
                         val c = URL(url).openConnection() as HttpURLConnection
                         c.connectTimeout = 15_000; c.readTimeout = 30_000
@@ -677,7 +701,7 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
                     val u = saved
                     if (u != null) openPhoto(u)
-                    else if (!url.startsWith("data:")) try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: Exception) {}
+                    else if (url.startsWith("http")) try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: Exception) {}
                 },
             )
             Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -728,6 +752,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun openAccessibility() {
+        say("Найди в списке «Изи» и включи. Если переключатель серый: Настройки, Приложения, Изи, три точки вверху, «Разрешить ограниченные настройки», и снова сюда.")
+        lifecycleScope.launch {
+            delay(4500)
+            try { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) } catch (_: Exception) {}
+        }
+    }
+
     private fun openPhoto(uri: Uri) {
         try {
             startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "image/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
@@ -756,6 +788,8 @@ class MainActivity : ComponentActivity() {
                 try {
                     val (bytes, mime) = if (url.startsWith("data:")) {
                         Base64.decode(url.substringAfter(","), Base64.DEFAULT) to url.substringAfter("data:").substringBefore(";").ifEmpty { "image/png" }
+                    } else if (url.startsWith("file:")) {
+                        java.io.File(Uri.parse(url).path!!).readBytes() to (if (url.endsWith(".png")) "image/png" else "image/jpeg")
                     } else {
                         val c = URL(url).openConnection() as HttpURLConnection
                         c.connectTimeout = 15_000; c.readTimeout = 60_000

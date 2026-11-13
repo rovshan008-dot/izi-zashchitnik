@@ -32,6 +32,7 @@ import org.vosk.Recognizer
 import org.vosk.android.StorageService
 import kotlin.math.max
 import kotlin.math.sqrt
+import kotlinx.coroutines.cancel
 
 /**
  * «Привет, Изи»: слушает микрофон в фоне и ждёт фразу.
@@ -95,6 +96,8 @@ class WakeService : Service() {
     private var paused = false
     private var foreground = false
     private var loading = false
+    private val scope = kotlinx.coroutines.MainScope()
+    private var overlay: VoiceOverlay? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -115,14 +118,16 @@ class WakeService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
-            ACTION_PAUSE -> { paused = true; stopLoop() }
-            ACTION_RESUME -> { paused = false; ensureListening() }
+            ACTION_PAUSE -> { paused = true; stopLoop(); overlay?.close() }
+            ACTION_RESUME -> { if (overlay == null) { paused = false; ensureListening() } }
             else -> ensureListening()
         }
         return START_STICKY
     }
 
     override fun onDestroy() {
+        overlay?.close()
+        scope.cancel()
         stopLoop()
         running = false
         super.onDestroy()
@@ -229,6 +234,19 @@ class WakeService : Service() {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             .putExtra(MainActivity.EXTRA_LISTEN, true)
             .putExtra(MainActivity.EXTRA_FROM_WAKE, true)
+        // Как у Siri: окошко с шаром поверх того приложения, что сейчас открыто
+        if (VoiceOverlay.canShow(this)) {
+            try {
+                overlay = VoiceOverlay(this, scope) {
+                    overlay = null
+                    if (!MainActivity.visible) { paused = false; ensureListening() }
+                }.also { it.start() }
+                return
+            } catch (e: Exception) {
+                Log.e(TAG, "overlay failed", e)
+                overlay = null
+            }
+        }
         val canOverlay = Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this)
         var opened = false
         if (canOverlay) {

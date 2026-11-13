@@ -75,6 +75,18 @@ object IziApi {
         Reply(null, error = "Нет связи с сервером")
     }
 
+    /** Вопрос со снимком экрана. null — сервер не принял картинку, тогда спросим текстом. */
+    fun see(token: String, text: String, imageDataUrl: String): Reply? = try {
+        val (code, s) = postJson(
+            "/chat/izi_see",
+            JSONObject().put("token", token).put("text", text).put("image", imageDataUrl),
+        )
+        val r = parseReply(code, s)
+        if (r.authExpired || (code in 200..299 && r.text != null)) r else null
+    } catch (e: Exception) {
+        null
+    }
+
     /** Запасной путь, если на телефоне нет распознавания речи: отправляем запись, сервер сам распознаёт. */
     fun voice(token: String, audio: File): Reply = try {
         val boundary = "----izi" + System.currentTimeMillis()
