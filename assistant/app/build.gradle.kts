@@ -27,7 +27,7 @@ android {
 
     defaultConfig {
         applicationId = "tech.izi20.assistant"
-        minSdk = 26
+        minSdk = 24
         targetSdk = 35
         versionCode = versionProps.getProperty("VERSION_CODE").toInt()
         versionName = versionProps.getProperty("VERSION_NAME")
@@ -50,7 +50,6 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
-            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = if (secret("KEYSTORE_PASS").isNotEmpty()) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
         }
