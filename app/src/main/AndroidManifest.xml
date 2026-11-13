@@ -77,6 +77,15 @@
 
             </intent-filter>
 
+            <!-- Голосовой помощник Изи: «включи/выключи защитник». Не BROWSABLE — сайты так VPN не выключат -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data
+                    android:host="vpn"
+                    android:scheme="izi-zashchitnik" />
+            </intent-filter>
+
             <!-- Изи Защитник: кнопка «Добавить» на сайте, izi-zashchitnik://add?url=<ссылка>&name=<название> -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

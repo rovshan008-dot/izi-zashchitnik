@@ -285,6 +285,23 @@ class MainActivity :
                 return
             }
         }
+        if (uri.scheme.equals(QuickProfileAdder.SCHEME, ignoreCase = true) && uri.host == "vpn") {
+            // Команда от голосового помощника Изи: izi-zashchitnik://vpn?on=1 / on=0
+            intent.data = null
+            val on = uri.getQueryParameter("on") != "0"
+            if (on) {
+                startService()
+            } else {
+                Settings.startedByUser = false
+                BoxService.stop()
+            }
+            // включили/выключили — уходим в фон, чтобы вернуть пользователя туда, где он был
+            lifecycleScope.launch {
+                kotlinx.coroutines.delay(if (on) 1800L else 600L)
+                moveTaskToBack(true)
+            }
+            return
+        }
         if (uri.scheme.equals(QuickProfileAdder.SCHEME, ignoreCase = true)) {
             // Кнопка с сайта: izi-zashchitnik://add?url=<ссылка>&name=<название>
             val link = QuickProfileAdder.parseLink(uri.toString())
