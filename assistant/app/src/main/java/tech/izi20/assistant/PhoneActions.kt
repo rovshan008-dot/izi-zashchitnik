@@ -45,6 +45,7 @@ object PhoneActions {
         val t = normalize(raw)
         if (t.isEmpty()) return null
         return timeAndDate(t)
+            ?: vpn(ctx, t)
             ?: Photos.handle(ctx, t)
             ?: Messaging.handle(ctx, t)
             ?: flashlight(ctx, t)
@@ -151,6 +152,33 @@ object PhoneActions {
             return Local("Сегодня $d")
         }
         return null
+    }
+
+    // ---------- Изи Защитник (VPN) ----------
+
+    private const val ZASH = "tech.izi20.zashchitnik"
+    private val VPN_WORD = Regex("(впн|vpn|в пн|вэпээн|ви пи эн|защитник|защиту|прокси)")
+
+    private fun vpnOn(ctx: Context): Boolean = try {
+        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true }
+    } catch (_: Exception) { false }
+
+    private fun vpn(ctx: Context, t: String): Local? {
+        if (!VPN_WORD.containsMatchIn(t)) return null
+        val status = Regex("(включен|работает|подключен|горит|статус|вкл ли|включен ли)").containsMatchIn(t) && !Regex("^(включи|выключи|отключи)").containsMatchIn(t)
+        if (status) return Local(if (vpnOn(ctx)) "Да, Защитник сейчас включён" else "Нет, Защитник сейчас выключен")
+        val off = Regex("^(выключи|отключи|выруби|останови|вырубай|убери)").containsMatchIn(t)
+        val on = Regex("^(включи|подключи|вруби|запусти|врубай|активируй)").containsMatchIn(t)
+        if (!on && !off) return null
+        if (on && vpnOn(ctx)) return Local("Защитник уже включён")
+        if (off && !vpnOn(ctx)) return Local("Защитник и так выключен")
+        val launch = ctx.packageManager.getLaunchIntentForPackage(ZASH) ?: return Local("Изи Защитник не установлен")
+        val cmd = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("izi-zashchitnik://vpn?on=" + if (on) "1" else "0")).setPackage(ZASH)
+        if (start(ctx, cmd)) return Local(if (on) "Включаю Защитник" else "Выключаю Защитник")
+        // старая версия Защитника не понимает команду — открываем его, нажать кнопку придётся самому
+        start(ctx, launch)
+        return Local("Открыл Защитник — нажми большую кнопку. Обнови Защитник до новой версии, и я смогу сам")
     }
 
     // ---------- фонарик ----------
