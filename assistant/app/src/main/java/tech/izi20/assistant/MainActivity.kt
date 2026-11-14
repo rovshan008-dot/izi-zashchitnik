@@ -159,6 +159,18 @@ class MainActivity : ComponentActivity() {
     private lateinit var recorder: Recorder
     private lateinit var speaker: Speaker
 
+    private val askSetupPerms = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
+        setup.onPermissionResult(res)
+    }
+    private val setup by lazy {
+        Setup(this, { askSetupPerms.launch(it) }) {
+            WakeService.setEnabled(this, true)
+            wakeOn = true
+            WakeService.startFromForeground(this, WakeService.ACTION_PAUSE)
+        }
+    }
+    private var showSetup by mutableStateOf(false)
+
     private val askPerms = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
         val granted = res.values.all { it }
         val text = pendingText
@@ -200,13 +212,18 @@ class MainActivity : ComponentActivity() {
         speaker = Speaker(this, lifecycleScope)
 
         readIntent(intent)
-        if (token != null) askBasicPermissions()
-        if (token != null && !autoListen) lifecycleScope.launch { delay(700); introIfNeeded() }
+        if (token != null && !autoListen) lifecycleScope.launch {
+            delay(700)
+            introIfNeeded()
+            if (!prefs.getBoolean("setup_shown", false) && setup.needsAttention()) showSetup = true
+        }
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = D.Violet, background = D.Deep, surface = Color(0xFF16131F))) {
                 Box(Modifier.fillMaxSize().background(D.background)) {
-                    if (token == null) LoginScreen() else MainScreen()
+                    if (token == null) LoginScreen()
+                    else if (showSetup) SetupScreen(setup) { showSetup = false; prefs.edit().putBoolean("setup_shown", true).apply(); setup.refresh() }
+                    else MainScreen()
                 }
             }
         }
@@ -232,12 +249,12 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         visible = true
+        setup.onResume()
         syncChat()
         wakeOn = WakeService.enabled(this)
         if (wakeOn && token != null) {
             // пока Изи на экране, микрофон у него — фоновое ожидание на паузе
             WakeService.startFromForeground(this, WakeService.ACTION_PAUSE)
-            askWakeExtras()
         }
         if (token != null && autoListen) {
             autoListen = false
@@ -519,8 +536,8 @@ class MainActivity : ComponentActivity() {
                 r.onSuccess {
                     prefs.edit().putString("token", it).apply()
                     token = it
-                    askBasicPermissions()
                     introIfNeeded()
+                    if (setup.needsAttention()) showSetup = true
                 }.onFailure { error = it.message ?: "Не получилось" }
             }
         }
@@ -620,6 +637,10 @@ class MainActivity : ComponentActivity() {
             Column(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
                 Header(onMenu = { menu = true }) {
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Настройка и разрешения") },
+                            onClick = { menu = false; showSetup = true },
+                        )
                         DropdownMenuItem(
                             text = { Text(if (wakeOn) "«Привет, Изи»: включено ✓" else "Включить «Привет, Изи»") },
                             onClick = { menu = false; toggleWake() },
