@@ -64,23 +64,28 @@ object DropApi {
     data class Poll(val items: List<Item>, val now: Double, val otherOnline: Boolean, val authExpired: Boolean = false)
 
     /** Проверить, что пришло с компьютера. since = время последнего ответа. */
-    fun poll(token: String, since: Double, wait: Boolean): Poll = try {
-        val (code, body) = postJson("/chat/drop/poll",
-            JSONObject().put("token", token).put("me", "phone").put("since", since).put("wait", wait),
-            if (wait) 30_000 else 12_000)
-        if (code == 401) return Poll(emptyList(), since, false, authExpired = true)
-        val j = JSONObject(body)
-        val arr = j.optJSONArray("items") ?: JSONArray()
-        val items = ArrayList<Item>(arr.length())
-        for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            items += Item(o.getString("id"), o.optDouble("ts"), o.optString("kind"),
-                o.optString("text").ifEmpty { null }, o.optString("name").ifEmpty { null },
-                o.optString("mime").ifEmpty { null }, o.optLong("size"))
+    fun poll(token: String, since: Double, wait: Boolean): Poll {
+        return try {
+            val (code, body) = postJson("/chat/drop/poll",
+                JSONObject().put("token", token).put("me", "phone").put("since", since).put("wait", wait),
+                if (wait) 30_000 else 12_000)
+            if (code == 401) {
+                Poll(emptyList(), since, false, authExpired = true)
+            } else {
+                val j = JSONObject(body)
+                val arr = j.optJSONArray("items") ?: JSONArray()
+                val items = ArrayList<Item>(arr.length())
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    items += Item(o.getString("id"), o.optDouble("ts"), o.optString("kind"),
+                        o.optString("text").ifEmpty { null }, o.optString("name").ifEmpty { null },
+                        o.optString("mime").ifEmpty { null }, o.optLong("size"))
+                }
+                Poll(items, j.optDouble("now", since), j.optBoolean("other_online"))
+            }
+        } catch (e: Exception) {
+            Poll(emptyList(), since, false)
         }
-        Poll(items, j.optDouble("now", since), j.optBoolean("other_online"))
-    } catch (e: Exception) {
-        Poll(emptyList(), since, false)
     }
 
     /** Скачать файл по id во временный файл. */
