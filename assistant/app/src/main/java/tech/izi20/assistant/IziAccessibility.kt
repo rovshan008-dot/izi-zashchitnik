@@ -76,10 +76,16 @@ class IziAccessibility : AccessibilityService() {
     }
 
     private fun toDataUrl(src: Bitmap): String {
-        val maxW = 800
+        // крупные подписи и цифры на графиках должны читаться — держим высокое разрешение
+        val maxW = 1600
         val b = if (src.width > maxW) Bitmap.createScaledBitmap(src, maxW, src.height * maxW / src.width, true) else src
         val out = ByteArrayOutputStream()
-        b.compress(Bitmap.CompressFormat.JPEG, 65, out)
+        var q = 88
+        b.compress(Bitmap.CompressFormat.JPEG, q, out)
+        // сервер принимает data-url до ~6 МБ; если вдруг больше — ужимаем
+        while (out.size() > 4_500_000 && q > 55) {
+            out.reset(); q -= 12; b.compress(Bitmap.CompressFormat.JPEG, q, out)
+        }
         return "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
     }
 }
