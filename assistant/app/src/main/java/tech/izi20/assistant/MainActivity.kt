@@ -159,11 +159,12 @@ class MainActivity : ComponentActivity() {
     private lateinit var recorder: Recorder
     private lateinit var speaker: Speaker
 
-    private val askSetupPerms = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
-        setup.onPermissionResult(res)
-    }
-    private val setup by lazy {
-        Setup(this, { askSetupPerms.launch(it) }) {
+    private val askSetupPerms: androidx.activity.result.ActivityResultLauncher<Array<String>> =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res: Map<String, Boolean> ->
+            setup.onPermissionResult(res)
+        }
+    private val setup: Setup by lazy {
+        Setup(this, { perms: Array<String> -> askSetupPerms.launch(perms) }) {
             WakeService.setEnabled(this, true)
             wakeOn = true
             WakeService.startFromForeground(this, WakeService.ACTION_PAUSE)

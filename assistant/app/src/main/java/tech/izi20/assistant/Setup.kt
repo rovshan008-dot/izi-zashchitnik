@@ -67,7 +67,7 @@ class Setup(
     private var waitingReturn = false
     private val attempted = mutableSetOf<String>()
     private var lastRequested: Array<String> = emptyArray()
-    private val prefs = act.getSharedPreferences("izi", ComponentActivity.MODE_PRIVATE)
+    private val prefs = act.getSharedPreferences("izi", android.content.Context.MODE_PRIVATE)
 
     private fun has(p: String) = ContextCompat.checkSelfPermission(act, p) == PackageManager.PERMISSION_GRANTED
 
