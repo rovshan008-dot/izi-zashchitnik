@@ -336,7 +336,7 @@ class MainActivity : ComponentActivity() {
                             val uri = withContext(Dispatchers.IO) {
                                 Photos.saveMediaToGallery(this@MainActivity, f.readBytes(), item.mime ?: "", item.name)
                             }
-                            Toast.makeText(this@MainActivity, if (uri != null) "Сохранено в Галерею → Izi" else "Не вышло сохранить", Toast.LENGTH_LONG).show()
+                            Toast.makeText(this@MainActivity, if (uri != null) "Сохранено в Галерею" else "Не вышло сохранить", Toast.LENGTH_LONG).show()
                         }
                         "В чат Изи" -> {
                             if ((item.mime ?: "").startsWith("image/")) {
@@ -1158,7 +1158,7 @@ class MainActivity : ComponentActivity() {
                     Photos.saveToGallery(this@MainActivity, bytes, if (mime.startsWith("image/")) mime else "image/jpeg")
                 } catch (e: Exception) { null }
             }
-            Toast.makeText(this@MainActivity, if (uri != null) "Сохранено в Галерею → Izi" else "Не получилось сохранить", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@MainActivity, if (uri != null) "Сохранено в Галерею" else "Не получилось сохранить", Toast.LENGTH_SHORT).show()
             done(uri)
         }
     }

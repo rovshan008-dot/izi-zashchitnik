@@ -144,64 +144,65 @@ object Photos {
         } catch (_: Exception) { null }
     }
 
-    /** Сохранить картинку от Изи в Галерею → «Izi». Возвращает адрес файла в галерее. */
+    /** Сохранить картинку от Изи в Галерею. Возвращает адрес файла в галерее. */
     fun saveToGallery(ctx: Context, bytes: ByteArray, mime: String): Uri? {
-        val ext = if (mime.contains("png")) "png" else "jpg"
-        val name = "izi_${System.currentTimeMillis()}.$ext"
-        val cv = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, name)
-            put(MediaStore.Images.Media.MIME_TYPE, mime)
-            if (Build.VERSION.SDK_INT >= 29) {
-                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Izi")
-                put(MediaStore.Images.Media.IS_PENDING, 1)
-            } else {
-                @Suppress("DEPRECATION")
-                val dir = java.io.File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "Izi")
-                dir.mkdirs()
-                @Suppress("DEPRECATION")
-                put(MediaStore.Images.Media.DATA, java.io.File(dir, name).absolutePath)
-            }
+        val ext = when {
+            mime.contains("png") -> "png"; mime.contains("webp") -> "webp"; mime.contains("gif") -> "gif"
+            mime.contains("heic") || mime.contains("heif") -> "heic"; else -> "jpg"
         }
-        return try {
-            val uri = ctx.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv) ?: return null
-            ctx.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
-            if (Build.VERSION.SDK_INT >= 29) {
-                ctx.contentResolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
-            }
-            uri
-        } catch (_: Exception) { null }
+        return insertMedia(ctx, bytes, mime, "izi_${System.currentTimeMillis()}.$ext", video = false)
     }
 
-    /** Сохранить видео от Изи или с компьютера в Галерею → «Izi». */
+    /** Сохранить видео от Изи или с компьютера в Галерею. */
     fun saveVideoToGallery(ctx: Context, bytes: ByteArray, mime: String, srcName: String? = null): Uri? {
         val ext = when {
             srcName?.contains('.') == true -> srcName.substringAfterLast('.').take(5)
             mime.contains("mp4") -> "mp4"; mime.contains("webm") -> "webm"; mime.contains("quicktime") -> "mov"
             mime.contains("3gpp") -> "3gp"; else -> "mp4"
         }
-        val name = "izi_${System.currentTimeMillis()}.$ext"
+        return insertMedia(ctx, bytes, mime.ifBlank { "video/mp4" }, "izi_${System.currentTimeMillis()}.$ext", video = true)
+    }
+
+    /**
+     * Кладём рядом со снимками камеры (DCIM/Camera) и ставим сегодняшнюю дату съёмки:
+     * так файл виден в общей ленте «Фото»/«Недавние», а не только в отдельном альбоме.
+     */
+    private fun insertMedia(ctx: Context, bytes: ByteArray, mime: String, name: String, video: Boolean): Uri? {
+        val now = System.currentTimeMillis()
+        val folder = Environment.DIRECTORY_DCIM + "/Camera"
         val cv = ContentValues().apply {
-            put(MediaStore.Video.Media.DISPLAY_NAME, name)
-            put(MediaStore.Video.Media.MIME_TYPE, mime.ifBlank { "video/mp4" })
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, mime)
+            put(MediaStore.MediaColumns.DATE_ADDED, now / 1000)
+            put(MediaStore.MediaColumns.DATE_MODIFIED, now / 1000)
+            put("datetaken", now)
             if (Build.VERSION.SDK_INT >= 29) {
-                put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/Izi")
-                put(MediaStore.Video.Media.IS_PENDING, 1)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, folder)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
             } else {
                 @Suppress("DEPRECATION")
-                val dir = java.io.File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "Izi")
+                val dir = java.io.File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM), "Camera")
                 dir.mkdirs()
                 @Suppress("DEPRECATION")
-                put(MediaStore.Video.Media.DATA, java.io.File(dir, name).absolutePath)
+                put(MediaStore.MediaColumns.DATA, java.io.File(dir, name).absolutePath)
             }
         }
+        val base = if (video) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val cr = ctx.contentResolver
+        var uri: Uri? = null
         return try {
-            val uri = ctx.contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, cv) ?: return null
-            ctx.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+            uri = cr.insert(base, cv) ?: return null
+            val out = cr.openOutputStream(uri) ?: throw java.io.IOException("no stream")
+            out.use { it.write(bytes) }
             if (Build.VERSION.SDK_INT >= 29) {
-                ctx.contentResolver.update(uri, ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) }, null, null)
+                cr.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
             }
             uri
-        } catch (_: Exception) { null }
+        } catch (_: Exception) {
+            // не оставляем в галерее пустую заготовку
+            try { uri?.let { cr.delete(it, null, null) } } catch (_: Exception) {}
+            null
+        }
     }
 
     /** Сохранить в галерею любой медиафайл (фото или видео), выбрав по типу. */
