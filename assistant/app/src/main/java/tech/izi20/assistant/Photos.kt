@@ -131,6 +131,19 @@ object Photos {
         }
     } catch (_: Exception) { null }
 
+    /** Самое свежее фото или видео из галереи. */
+    fun latest(ctx: Context, video: Boolean): Uri? {
+        if (!canRead(ctx)) return null
+        val coll = if (video) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val idCol = if (video) MediaStore.Video.Media._ID else MediaStore.Images.Media._ID
+        val dateCol = if (video) MediaStore.Video.Media.DATE_ADDED else MediaStore.Images.Media.DATE_ADDED
+        return try {
+            ctx.contentResolver.query(coll, arrayOf(idCol), null, null, "$dateCol DESC")?.use { c ->
+                if (c.moveToFirst()) ContentUris.withAppendedId(coll, c.getLong(0)) else null
+            }
+        } catch (_: Exception) { null }
+    }
+
     /** Сохранить картинку от Изи в Галерею → «Izi». Возвращает адрес файла в галерее. */
     fun saveToGallery(ctx: Context, bytes: ByteArray, mime: String): Uri? {
         val ext = if (mime.contains("png")) "png" else "jpg"
@@ -158,4 +171,42 @@ object Photos {
             uri
         } catch (_: Exception) { null }
     }
+
+    /** Сохранить видео от Изи или с компьютера в Галерею → «Izi». */
+    fun saveVideoToGallery(ctx: Context, bytes: ByteArray, mime: String, srcName: String? = null): Uri? {
+        val ext = when {
+            srcName?.contains('.') == true -> srcName.substringAfterLast('.').take(5)
+            mime.contains("mp4") -> "mp4"; mime.contains("webm") -> "webm"; mime.contains("quicktime") -> "mov"
+            mime.contains("3gpp") -> "3gp"; else -> "mp4"
+        }
+        val name = "izi_${System.currentTimeMillis()}.$ext"
+        val cv = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, name)
+            put(MediaStore.Video.Media.MIME_TYPE, mime.ifBlank { "video/mp4" })
+            if (Build.VERSION.SDK_INT >= 29) {
+                put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/Izi")
+                put(MediaStore.Video.Media.IS_PENDING, 1)
+            } else {
+                @Suppress("DEPRECATION")
+                val dir = java.io.File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "Izi")
+                dir.mkdirs()
+                @Suppress("DEPRECATION")
+                put(MediaStore.Video.Media.DATA, java.io.File(dir, name).absolutePath)
+            }
+        }
+        return try {
+            val uri = ctx.contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, cv) ?: return null
+            ctx.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+            if (Build.VERSION.SDK_INT >= 29) {
+                ctx.contentResolver.update(uri, ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) }, null, null)
+            }
+            uri
+        } catch (_: Exception) { null }
+    }
+
+    /** Сохранить в галерею любой медиафайл (фото или видео), выбрав по типу. */
+    fun saveMediaToGallery(ctx: Context, bytes: ByteArray, mime: String, srcName: String? = null): Uri? =
+        if (mime.startsWith("video/") || srcName?.substringAfterLast('.', "")?.lowercase() in setOf("mp4", "mov", "webm", "3gp", "mkv", "avi"))
+            saveVideoToGallery(ctx, bytes, mime, srcName)
+        else saveToGallery(ctx, bytes, if (mime.startsWith("image/")) mime else "image/jpeg")
 }

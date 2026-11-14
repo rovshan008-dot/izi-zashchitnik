@@ -132,8 +132,13 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_LISTEN = "izi_listen"
         const val EXTRA_FROM_WAKE = "izi_from_wake"
+        const val EXTRA_SHARE_TEXT = "izi_share_text"
+        const val EXTRA_SHARE_IMAGE = "izi_share_image"
         @Volatile var visible = false
     }
+
+    private var pendingShareText: String? = null
+    private var pendingShareImage: Uri? = null
 
     private val prefs by lazy { getSharedPreferences("izi", MODE_PRIVATE) }
 
@@ -244,6 +249,7 @@ class MainActivity : ComponentActivity() {
         // микрофон отдаём обратно «Привет, Изи»
         if (phase == Phase.Listening) { listener.cancel(); recorder.cancel(); phase = Phase.Idle; heard = ""; level = 0f }
         WakeService.send(this, WakeService.ACTION_RESUME)
+        dropJob?.cancel(); dropJob = null
         super.onPause()
     }
 
@@ -260,6 +266,96 @@ class MainActivity : ComponentActivity() {
         if (token != null && autoListen) {
             autoListen = false
             lifecycleScope.launch { delay(300); startListening() }
+        }
+        if (token != null && (pendingShareImage != null || pendingShareText != null)) {
+            lifecycleScope.launch { delay(200); processShareIfAny() }
+        }
+        if (token != null) startDropPoll()
+    }
+
+    // ---------- приём с компьютера ----------
+
+    private var dropJob: kotlinx.coroutines.Job? = null
+    private var dropSince = 0.0
+
+    private fun startDropPoll() {
+        if (dropJob?.isActive == true) return
+        dropJob = lifecycleScope.launch {
+            while (visible) {
+                val tok = token ?: break
+                val p = withContext(Dispatchers.IO) { DropApi.poll(tok, dropSince, wait = true) }
+                if (p.authExpired) break
+                dropSince = p.now
+                for (it in p.items) onDropItem(it)
+                if (p.items.isEmpty()) delay(300)
+            }
+        }
+    }
+
+    private fun onDropItem(item: DropApi.Item) {
+        when (item.kind) {
+            "text", "link", "clip" -> {
+                val t = item.text ?: return
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("С компьютера")
+                    .setMessage(t)
+                    .setPositiveButton(if (item.kind == "link") "Открыть" else "Скопировать") { _, _ ->
+                        if (item.kind == "link") try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(t))) } catch (_: Exception) {}
+                        else {
+                            (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                                .setPrimaryClip(android.content.ClipData.newPlainText("Изи", t))
+                            Toast.makeText(this, "Скопировано", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .setNegativeButton("Закрыть", null)
+                    .show()
+            }
+            "file" -> askFileDestination(item)
+        }
+    }
+
+    private fun askFileDestination(item: DropApi.Item) {
+        val isMedia = (item.mime ?: "").let { it.startsWith("image/") || it.startsWith("video/") }
+        val options = if (isMedia) arrayOf("В галерею", "В чат Изи", "Сохранить файл") else arrayOf("Открыть", "В чат Изи")
+        android.app.AlertDialog.Builder(this)
+            .setTitle("С компьютера: ${item.name ?: "файл"}")
+            .setItems(options) { _, which ->
+                val tok = token ?: return@setItems
+                Toast.makeText(this, "Получаю…", Toast.LENGTH_SHORT).show()
+                lifecycleScope.launch {
+                    val f = java.io.File(cacheDir, "drop_${item.id}")
+                    val ok = withContext(Dispatchers.IO) { DropApi.download(tok, item, f) }
+                    if (!ok) { Toast.makeText(this@MainActivity, "Не получилось скачать", Toast.LENGTH_SHORT).show(); return@launch }
+                    val label = options[which]
+                    when (label) {
+                        "В галерею" -> {
+                            val uri = withContext(Dispatchers.IO) {
+                                Photos.saveMediaToGallery(this@MainActivity, f.readBytes(), item.mime ?: "", item.name)
+                            }
+                            Toast.makeText(this@MainActivity, if (uri != null) "Сохранено в Галерею → Izi" else "Не вышло сохранить", Toast.LENGTH_LONG).show()
+                        }
+                        "В чат Изи" -> {
+                            if ((item.mime ?: "").startsWith("image/")) {
+                                val u = Photos.saveMediaToGallery(this@MainActivity, f.readBytes(), item.mime ?: "image/jpeg", item.name)
+                                if (u != null) { addMsg(Msg(true, "", photos = listOf(u))); askBrainAboutImage(u, "Посмотри на это фото и скажи, что на нём.") }
+                            } else addMsg(Msg(true, "📄 ${item.name ?: "файл"} с компьютера"))
+                        }
+                        else -> openFileExternally(f, item)
+                    }
+                }
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    private fun openFileExternally(f: java.io.File, item: DropApi.Item) {
+        try {
+            val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.files", f)
+            val view = Intent(Intent.ACTION_VIEW).setDataAndType(uri, item.mime ?: "*/*")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(Intent.createChooser(view, item.name ?: "Открыть"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "Нечем открыть этот файл", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -282,7 +378,52 @@ class MainActivity : ComponentActivity() {
         if (i.action == Intent.ACTION_ASSIST || i.action == "android.intent.action.VOICE_COMMAND" ||
             i.getBooleanExtra(EXTRA_LISTEN, false)
         ) autoListen = true
+
+        val st = i.getStringExtra(EXTRA_SHARE_TEXT)
+        val si = i.getStringExtra(EXTRA_SHARE_IMAGE)
+        if (!st.isNullOrBlank()) pendingShareText = st
+        if (!si.isNullOrBlank()) pendingShareImage = try { Uri.parse(si) } catch (_: Exception) { null }
     }
+
+    private fun processShareIfAny() {
+        val img = pendingShareImage
+        val txt = pendingShareText
+        pendingShareImage = null
+        pendingShareText = null
+        if (img != null) {
+            addMsg(Msg(true, txt?.takeIf { it.isNotBlank() } ?: "", photos = listOf(img)))
+            askBrainAboutImage(img, txt?.takeIf { it.isNotBlank() } ?: "Посмотри на это фото и скажи, что на нём.")
+        } else if (!txt.isNullOrBlank()) {
+            handleText(txt)
+        }
+    }
+
+    /** «В чат Изи» для фото: отправляем снимок мозгу и показываем ответ. */
+    private fun askBrainAboutImage(uri: Uri, question: String) {
+        val tok = token ?: return
+        phase = Phase.Thinking
+        lifecycleScope.launch {
+            val dataUrl = withContext(Dispatchers.IO) { uriToDataUrl(uri) }
+            if (dataUrl == null) { say("Не смог открыть это фото"); return@launch }
+            val r = withContext(Dispatchers.IO) {
+                IziApi.see(tok, question, dataUrl) ?: IziApi.chat(tok, question)
+            }
+            onBrainReply(r)
+        }
+    }
+
+    private fun uriToDataUrl(uri: Uri): String? = try {
+        val raw = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(raw, 0, raw.size, opts)
+        var sample = 1
+        while (opts.outWidth / (sample * 2) >= 1600 || opts.outHeight / (sample * 2) >= 1600) sample *= 2
+        val bmp = BitmapFactory.decodeByteArray(raw, 0, raw.size, BitmapFactory.Options().apply { inSampleSize = sample })
+            ?: return null
+        val out = java.io.ByteArrayOutputStream()
+        bmp.compress(Bitmap.CompressFormat.JPEG, 80, out)
+        "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+    } catch (e: Exception) { null }
 
     private fun hasMic() =
         ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -417,9 +558,46 @@ class MainActivity : ComponentActivity() {
             if (r != null) { showLocal(r, t); return }
         }
 
+        if (handleSendToPc(t)) return
+
         val local = try { PhoneActions.handle(this, t) } catch (e: Exception) { null }
         if (local != null) { showLocal(local, t); return }
         askBrain(t)
+    }
+
+    /** «отправь это на комп», «скинь на компьютер <текст/ссылка>», «отправь последнее фото на комп». */
+    private fun handleSendToPc(raw: String): Boolean {
+        val t = PhoneActions.normalize(raw)
+        if (!Regex("на (комп|компьютер|пк|ноут|ноутбук)\\b").containsMatchIn(t)) return false
+        if (!Regex("^(отправ|скин|перекин|кин|пошл|передай|шли)").containsMatchIn(t)) return false
+        val tok = token ?: return false
+
+        // последнее фото / видео
+        if (Regex("(фото|фотк|снимок|картинк|видео|ролик)").containsMatchIn(t)) {
+            if (!Photos.canRead(this)) { say("Разреши доступ к фото, и я отправлю на компьютер"); return true }
+            val video = Regex("(видео|ролик)").containsMatchIn(t)
+            phase = Phase.Thinking
+            lifecycleScope.launch {
+                val uri = withContext(Dispatchers.IO) { Photos.latest(this@MainActivity, video) }
+                if (uri == null) { say("Не нашёл ${if (video) "видео" else "фото"} в галерее"); return@launch }
+                val ok = withContext(Dispatchers.IO) { DropApi.sendFile(this@MainActivity, tok, uri) }
+                say(if (ok) "Отправил на компьютер. Открой izi20.tech/drop" else "Не получилось отправить")
+            }
+            return true
+        }
+
+        // текст/ссылка после слова «комп», либо «это» = последнее сообщение
+        val payload = raw.replace(Regex("(?i)^.*?(отправ\\S*|скин\\S*|перекин\\S*|кинь|пошли|передай|шли)\\s*"), "")
+            .replace(Regex("(?i)\\s*на (комп\\S*|компьютер|пк|ноут\\S*)\\b"), "")
+            .replace(Regex("(?i)^(это|текст|ссылку)\\s*"), "").trim()
+        if (payload.isBlank()) { say("Что отправить на компьютер? Скажи текст или ссылку"); return true }
+        val link = Regex("^https?://\\S+$").matches(payload)
+        phase = Phase.Thinking
+        lifecycleScope.launch {
+            val ok = withContext(Dispatchers.IO) { DropApi.sendText(tok, payload, link) }
+            say(if (ok) "Отправил на компьютер. Открой izi20.tech/drop" else "Не получилось отправить")
+        }
+        return true
     }
 
     private fun showLocal(local: PhoneActions.Local, original: String) {
@@ -638,6 +816,19 @@ class MainActivity : ComponentActivity() {
             Column(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
                 Header(onMenu = { menu = true }) {
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Перенос на компьютер") },
+                            onClick = {
+                                menu = false
+                                android.app.AlertDialog.Builder(this@MainActivity)
+                                    .setTitle("Телефон ↔ Компьютер")
+                                    .setMessage("На компьютере открой izi20.tech/drop и войди тем же кодом из /web.\n\n" +
+                                        "С телефона: «Поделиться → Изи → На компьютер», или скажи «отправь это на комп».\n" +
+                                        "С компьютера перетащи файл — придёт сюда.")
+                                    .setPositiveButton("Понятно", null)
+                                    .show()
+                            },
+                        )
                         DropdownMenuItem(
                             text = { Text("Настройка и разрешения") },
                             onClick = { menu = false; showSetup = true },
