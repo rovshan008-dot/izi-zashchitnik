@@ -276,18 +276,22 @@ class MainActivity : ComponentActivity() {
     // ---------- приём с компьютера ----------
 
     private var dropJob: kotlinx.coroutines.Job? = null
-    private var dropSince = 0.0
 
     private fun startDropPoll() {
         if (dropJob?.isActive == true) return
         dropJob = lifecycleScope.launch {
+            // то, что пришло, пока Изи был свёрнут
+            for (it in DropState.takePending(this@MainActivity)) onDropItem(it)
+            getSystemService(android.app.NotificationManager::class.java)?.cancel(WakeService.NID_DROP)
             while (visible) {
                 val tok = token ?: break
-                val p = withContext(Dispatchers.IO) { DropApi.poll(tok, dropSince, wait = true) }
+                val started = System.currentTimeMillis()
+                val p = withContext(Dispatchers.IO) { DropApi.poll(tok, DropState.since(this@MainActivity), wait = true) }
                 if (p.authExpired) break
-                dropSince = p.now
-                for (it in p.items) onDropItem(it)
-                if (p.items.isEmpty()) delay(300)
+                DropState.setSince(this@MainActivity, p.now)
+                for (it in DropState.takePending(this@MainActivity)) onDropItem(it)
+                for (it in p.items) if (DropState.claim(it.id)) onDropItem(it)
+                if (p.items.isEmpty()) delay(if (System.currentTimeMillis() - started < 2000) 3000 else 300)
             }
         }
     }

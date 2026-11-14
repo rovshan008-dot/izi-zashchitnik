@@ -32,7 +32,12 @@ import org.vosk.Recognizer
 import org.vosk.android.StorageService
 import kotlin.math.max
 import kotlin.math.sqrt
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * «Привет, Изи»: слушает микрофон в фоне и ждёт фразу.
@@ -51,6 +56,8 @@ class WakeService : Service() {
         private const val CHANNEL_HIT = "izi_wake_hit_v1"
         private const val NID = 4242
         private const val NID_HIT = 4243
+        private const val CHANNEL_DROP = "izi_drop_v1"
+        const val NID_DROP = 4244
 
         @Volatile var running = false
             private set
@@ -122,6 +129,7 @@ class WakeService : Service() {
             ACTION_RESUME -> { if (overlay == null) { paused = false; ensureListening() } }
             else -> ensureListening()
         }
+        startDropWatch()
         return START_STICKY
     }
 
@@ -142,6 +150,11 @@ class WakeService : Service() {
             nm.createNotificationChannel(NotificationChannel(CHANNEL, "«Привет, Изи»", NotificationManager.IMPORTANCE_LOW).apply {
                 description = "Изи ждёт, когда его позовут"
                 setShowBadge(false)
+            })
+        }
+        if (nm.getNotificationChannel(CHANNEL_DROP) == null) {
+            nm.createNotificationChannel(NotificationChannel(CHANNEL_DROP, "С компьютера", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Фото, файлы, ссылки и текст, которые ты отправил себе с компьютера"
             })
         }
         if (nm.getNotificationChannel(CHANNEL_HIT) == null) {
@@ -188,6 +201,67 @@ class WakeService : Service() {
     private fun stopForegroundCompat() {
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         foreground = false
+    }
+
+    // ---------- приём с компьютера, пока Изи свёрнут ----------
+
+    private var dropJob: kotlinx.coroutines.Job? = null
+    private var dropWaiting = 0
+
+    private fun startDropWatch() {
+        if (dropJob?.isActive == true) return
+        dropJob = scope.launch {
+            while (isActive) {
+                // пока Изи на экране, он спрашивает сервер сам
+                if (MainActivity.visible) { dropWaiting = 0; delay(1500); continue }
+                val tok = getSharedPreferences("izi", Context.MODE_PRIVATE).getString("token", null)
+                if (tok == null) { delay(15_000); continue }
+                val started = System.currentTimeMillis()
+                val p = withContext(Dispatchers.IO) { DropApi.poll(tok, DropState.since(this@WakeService), wait = true) }
+                if (p.authExpired) { delay(600_000); continue }
+                DropState.setSince(this@WakeService, p.now)
+                val fresh = p.items.filter { DropState.claim(it.id) }
+                if (fresh.isNotEmpty()) {
+                    for (it in fresh) DropState.addPending(this@WakeService, it)
+                    if (!MainActivity.visible) { dropWaiting += fresh.size; showDropNotification(fresh.last(), dropWaiting) }
+                } else if (System.currentTimeMillis() - started < 2000) {
+                    delay(5000) // сети нет или сервер ответил сразу — не молотим впустую
+                }
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun showDropNotification(item: DropApi.Item, count: Int) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        ensureChannels()
+        val open = PendingIntent.getActivity(
+            this, 4,
+            Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val mime = item.mime ?: ""
+        val what = when {
+            item.kind == "link" -> "Ссылка: ${item.text ?: ""}"
+            item.kind == "text" || item.kind == "clip" -> item.text ?: "Текст"
+            mime.startsWith("image/") -> "Фото: ${item.name ?: ""}"
+            mime.startsWith("video/") -> "Видео: ${item.name ?: ""}"
+            else -> "Файл: ${item.name ?: ""}"
+        }
+        val n = NotificationCompat.Builder(this, CHANNEL_DROP)
+            .setSmallIcon(R.drawable.ic_stat_izi)
+            .setContentTitle(if (count > 1) "С компьютера пришло: $count" else "Пришло с компьютера")
+            .setContentText(what.take(120))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(what.take(400)))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setAutoCancel(true)
+            .setContentIntent(open)
+            .build()
+        NotificationManagerCompat.from(this).notify(NID_DROP, n)
     }
 
     // ---------- модель ----------

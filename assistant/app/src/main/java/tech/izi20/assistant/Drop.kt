@@ -125,3 +125,51 @@ object DropApi {
         }
     } catch (e: Exception) { null }
 }
+
+/**
+ * Общее состояние приёма: экран Изи и фоновая служба спрашивают сервер по очереди,
+ * поэтому отметка времени и список «уже видел» у них одни на двоих.
+ */
+object DropState {
+    private const val PREFS = "izi"
+    private val seen = HashSet<String>()
+
+    fun since(ctx: Context): Double =
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("drop_since", null)?.toDoubleOrNull() ?: 0.0
+
+    fun setSince(ctx: Context, v: Double) {
+        if (v <= 0.0) return
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("drop_since", v.toString()).apply()
+    }
+
+    /** true — эту вещь ещё никто не показывал, берём её себе. */
+    @Synchronized fun claim(id: String): Boolean = seen.add(id)
+
+    /** Пришло, пока Изи был свёрнут: ждёт, когда его откроют. */
+    @Synchronized fun addPending(ctx: Context, item: DropApi.Item) {
+        val arr = readPending(ctx)
+        arr.put(JSONObject().put("id", item.id).put("ts", item.ts).put("kind", item.kind)
+            .put("text", item.text ?: "").put("name", item.name ?: "").put("mime", item.mime ?: "").put("size", item.size))
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("drop_pending", arr.toString()).apply()
+    }
+
+    @Synchronized fun takePending(ctx: Context): List<DropApi.Item> {
+        val arr = readPending(ctx)
+        if (arr.length() == 0) return emptyList()
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove("drop_pending").apply()
+        val out = ArrayList<DropApi.Item>(arr.length())
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val id = o.optString("id"); if (id.isEmpty()) continue
+            seen.add(id)
+            out += DropApi.Item(id, o.optDouble("ts"), o.optString("kind"),
+                o.optString("text").ifEmpty { null }, o.optString("name").ifEmpty { null },
+                o.optString("mime").ifEmpty { null }, o.optLong("size"))
+        }
+        return out
+    }
+
+    private fun readPending(ctx: Context): JSONArray = try {
+        JSONArray(ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("drop_pending", "[]"))
+    } catch (e: Exception) { JSONArray() }
+}
