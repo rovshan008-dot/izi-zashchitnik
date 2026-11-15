@@ -10,6 +10,8 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -146,6 +148,157 @@ func Voice(token string, audio []byte, filename, contentType string) Reply {
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
 	return parseReply(resp.StatusCode, data, nil)
+}
+
+// See — вопрос с прикреплённым фото (izi_see), как «Спросить Изи про это фото».
+func See(token, text, imageDataURL string) Reply {
+	code, data, err := postJSON("/chat/izi_see", map[string]any{
+		"token": token, "text": text, "image": imageDataURL,
+	}, 125*time.Second)
+	return parseReply(code, data, err)
+}
+
+// ---------- «Перенос»: телефон ↔ компьютер (см. Drop.kt в assistant/) ----------
+
+type DropItem struct {
+	ID   string  `json:"id"`
+	TS   float64 `json:"ts"`
+	Kind string  `json:"kind"` // text | link | file
+	Text string  `json:"text,omitempty"`
+	Name string  `json:"name,omitempty"`
+	Mime string  `json:"mime,omitempty"`
+	Size int64   `json:"size,omitempty"`
+}
+
+type DropPoll struct {
+	Items       []DropItem `json:"items"`
+	Now         float64    `json:"now"`
+	OtherOnline bool       `json:"other_online"`
+	AuthExpired bool       `json:"auth_expired,omitempty"`
+}
+
+// DropSendText — отправить текст или ссылку на телефон.
+func DropSendText(token, text string, link bool) bool {
+	kind := "text"
+	if link {
+		kind = "link"
+	}
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	_ = w.WriteField("token", token)
+	_ = w.WriteField("to", "phone")
+	_ = w.WriteField("kind", kind)
+	_ = w.WriteField("text", text)
+	_ = w.Close()
+	return dropSendRaw(&buf, w.FormDataContentType())
+}
+
+// DropSendFile — отправить файл с диска на телефон.
+func DropSendFile(token, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	_ = w.WriteField("token", token)
+	_ = w.WriteField("to", "phone")
+	_ = w.WriteField("kind", "file")
+	name := filepath.Base(path)
+	part, err := w.CreateFormFile("file", name)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(part, f); err != nil {
+		return err
+	}
+	_ = w.Close()
+	if !dropSendRaw(&buf, w.FormDataContentType()) {
+		return fmt.Errorf("сервер не принял файл")
+	}
+	return nil
+}
+
+func dropSendRaw(body *bytes.Buffer, contentType string) bool {
+	req, err := http.NewRequest(http.MethodPost, apiBase+"/chat/drop/send", body)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("User-Agent", "IziWindows/1")
+	c := &http.Client{Timeout: 120 * time.Second}
+	resp, err := c.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return false
+	}
+	var j map[string]any
+	if err := json.Unmarshal(data, &j); err != nil {
+		return false
+	}
+	ok, _ := j["ok"].(bool)
+	return ok
+}
+
+// DropFetch — проверить, что пришло с телефона. since = время последнего ответа сервера.
+func DropFetch(token string, since float64, wait bool) DropPoll {
+	timeout := 12 * time.Second
+	if wait {
+		timeout = 35 * time.Second
+	}
+	code, data, err := postJSON("/chat/drop/poll", map[string]any{
+		"token": token, "me": "pc", "since": since, "wait": wait,
+	}, timeout)
+	if err != nil {
+		return DropPoll{Now: since}
+	}
+	if code == 401 {
+		return DropPoll{Now: since, AuthExpired: true}
+	}
+	var j struct {
+		Items       []DropItem `json:"items"`
+		Now         float64    `json:"now"`
+		OtherOnline bool       `json:"other_online"`
+	}
+	if err := json.Unmarshal(data, &j); err != nil {
+		return DropPoll{Now: since}
+	}
+	if j.Now == 0 {
+		j.Now = since
+	}
+	return DropPoll{Items: j.Items, Now: j.Now, OtherOnline: j.OtherOnline}
+}
+
+// DropDownload — скачать присланный файл по id, сохранить по указанному пути.
+func DropDownload(token, id, destPath string) error {
+	b, _ := json.Marshal(map[string]any{"token": token, "id": id})
+	req, err := http.NewRequest(http.MethodPost, apiBase+"/chat/drop/get", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("User-Agent", "IziWindows/1")
+	c := &http.Client{Timeout: 120 * time.Second}
+	resp, err := c.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("сервер вернул код %d", resp.StatusCode)
+	}
+	out, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, resp.Body)
+	return err
 }
 
 // TTS — голос Изи с сервера. Возвращает nil, если сервер не смог озвучить.

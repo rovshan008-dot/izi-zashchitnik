@@ -17,8 +17,9 @@ type Msg struct {
 }
 
 type stateFile struct {
-	Token    string `json:"token"`
-	Messages []Msg  `json:"messages"`
+	Token     string  `json:"token"`
+	Messages  []Msg   `json:"messages"`
+	DropSince float64 `json:"dropSince"`
 }
 
 type Store struct {
@@ -79,6 +80,19 @@ func (s *Store) History() []Msg {
 	out := make([]Msg, len(s.data.Messages))
 	copy(out, s.data.Messages)
 	return out
+}
+
+func (s *Store) DropSince() float64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.data.DropSince
+}
+
+func (s *Store) SetDropSince(v float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.DropSince = v
+	s.save()
 }
 
 func (s *Store) Add(m Msg) {

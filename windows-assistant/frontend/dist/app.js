@@ -19,6 +19,161 @@
   const headerOrb = document.getElementById("header-orb");
   const player = document.getElementById("player");
 
+  // ---------- Перенос ----------
+  const tabChatBtn = document.getElementById("tab-chat-btn");
+  const tabDropBtn = document.getElementById("tab-drop-btn");
+  const tabChat = document.getElementById("tab-chat");
+  const tabDrop = document.getElementById("tab-drop");
+  const dropZone = document.getElementById("drop-zone");
+  const dropTextInput = document.getElementById("drop-text-input");
+  const dropSendBtn = document.getElementById("drop-send-btn");
+  const dropList = document.getElementById("drop-list");
+  const dropEmpty = document.getElementById("drop-empty");
+  const dropDialog = document.getElementById("drop-dialog");
+  const dropDialogPhone = document.getElementById("drop-dialog-phone");
+  const dropDialogAsk = document.getElementById("drop-dialog-ask");
+  const dropDialogCancel = document.getElementById("drop-dialog-cancel");
+  const IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp)$/i;
+
+  function switchTab(name) {
+    tabChat.hidden = name !== "chat";
+    tabDrop.hidden = name !== "drop";
+    tabChatBtn.classList.toggle("active", name === "chat");
+    tabDropBtn.classList.toggle("active", name === "drop");
+  }
+  tabChatBtn.addEventListener("click", () => switchTab("chat"));
+  tabDropBtn.addEventListener("click", () => switchTab("drop"));
+
+  function fileIconSvg() {
+    return '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+  }
+  function linkIconSvg() {
+    return '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L11.5 4.5"/><path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07L12.5 19.5"/></svg>';
+  }
+
+  function addDropItem(view) {
+    dropEmpty.hidden = true;
+    const div = document.createElement("div");
+    div.className = "drop-item" + (view.error ? " error" : "");
+    const icon = document.createElement("div");
+    icon.className = "drop-item-icon";
+    icon.innerHTML = view.kind === "file" ? fileIconSvg() : view.kind === "link" ? linkIconSvg() : "";
+    const main = document.createElement("div");
+    main.className = "drop-item-main";
+    const name = document.createElement("div");
+    name.className = "drop-item-name";
+    const sub = document.createElement("div");
+    sub.className = "drop-item-sub";
+    if (view.kind === "link") {
+      const a = document.createElement("a");
+      a.href = view.text; a.textContent = view.text; a.target = "_blank"; a.rel = "noreferrer";
+      name.appendChild(a);
+      sub.textContent = "ссылка с телефона";
+    } else if (view.kind === "text") {
+      name.textContent = view.text;
+      sub.textContent = "текст с телефона";
+    } else {
+      name.textContent = view.name || "файл";
+      sub.textContent = view.error ? view.error : (view.localPath ? "скачано" : "скачивается…");
+    }
+    main.appendChild(name);
+    main.appendChild(sub);
+    div.appendChild(icon);
+    div.appendChild(main);
+    dropList.prepend(div);
+  }
+
+  async function sendFilesToPhone(paths) {
+    if (!paths || paths.length === 0) return;
+    try {
+      const results = await App().SendDropFiles(paths);
+      (results || []).forEach((r) => {
+        if (!r.ok) addMessageEl(false, "⚠ " + r.name + ": " + (r.error || "не отправилось"));
+      });
+    } catch (e) {
+      addMessageEl(false, "⚠ Не получилось отправить файл на телефон");
+    }
+  }
+
+  let pendingDialogPath = null;
+  function openDropDialog(path) {
+    pendingDialogPath = path;
+    dropDialog.hidden = false;
+  }
+  function closeDropDialog() {
+    pendingDialogPath = null;
+    dropDialog.hidden = true;
+  }
+  dropDialogCancel.addEventListener("click", closeDropDialog);
+  dropDialogPhone.addEventListener("click", async () => {
+    const path = pendingDialogPath;
+    closeDropDialog();
+    if (path) await sendFilesToPhone([path]);
+  });
+  dropDialogAsk.addEventListener("click", async () => {
+    const path = pendingDialogPath;
+    closeDropDialog();
+    if (!path) return;
+    switchTab("chat");
+    const typing = addMessageEl(false, "смотрю фото…");
+    typing.classList.add("typing");
+    setOrbState("thinking");
+    try {
+      const r = await App().AskAboutPhoto(path, "");
+      typing.remove();
+      setOrbState("");
+      if (handleAuthExpired(r)) return;
+      if (r.error) { addMessageEl(false, "⚠ " + r.error); return; }
+      if (r.text || r.image_url) {
+        addMessageEl(false, r.text, r.image_url);
+        if (r.text && !r.silent) speakReply(r.text);
+      }
+      await loadHistory();
+    } catch (e) {
+      typing.remove();
+      setOrbState("");
+      addMessageEl(false, "⚠ Нет связи с сервером");
+    }
+  });
+
+  async function handleIncomingPaths(paths) {
+    if (!paths || paths.length === 0) return;
+    if (paths.length === 1 && IMAGE_EXT.test(paths[0])) {
+      openDropDialog(paths[0]);
+    } else {
+      await sendFilesToPhone(paths);
+    }
+  }
+
+  dropZone.addEventListener("click", async () => {
+    try {
+      const paths = await App().ChooseFiles();
+      await handleIncomingPaths(paths);
+    } catch (e) { /* отмена выбора — не ошибка */ }
+  });
+
+  // нативный drag&drop окна Wails шлёт событие именно когда файлы отпустили над окном
+  if (window.runtime && window.runtime.EventsOn) {
+    window.runtime.EventsOn("files-dropped", (paths) => { handleIncomingPaths(paths); });
+    window.runtime.EventsOn("drop-item", (view) => { addDropItem(view); });
+  }
+
+  dropSendBtn.addEventListener("click", async () => {
+    const text = dropTextInput.value.trim();
+    if (!text) return;
+    const isLink = /^https?:\/\//i.test(text);
+    dropSendBtn.disabled = true;
+    try {
+      const ok = await App().SendDropText(text, isLink);
+      if (ok) dropTextInput.value = "";
+      else addMessageEl(false, "⚠ Не получилось отправить на телефон");
+    } catch (e) {
+      addMessageEl(false, "⚠ Нет связи с сервером");
+    }
+    dropSendBtn.disabled = false;
+  });
+  dropTextInput.addEventListener("keydown", (e) => { if (e.key === "Enter") dropSendBtn.click(); });
+
   function renderCode() {
     const v = codeInput.value;
     codeBoxes.forEach((box, i) => {

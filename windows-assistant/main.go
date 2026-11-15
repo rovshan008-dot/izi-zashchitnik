@@ -42,8 +42,12 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 7, G: 7, B: 11, A: 255},
 		AssetServer:      &assetserver.Options{Assets: assets},
 		OnStartup:        app.startup,
+		OnDomReady:       app.domReady,
 		OnBeforeClose:    app.beforeClose,
 		OnShutdown:       app.shutdown,
+		DragAndDrop: &options.DragAndDrop{
+			EnableFileDrop: true,
+		},
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId:               "tech.izi20.assistant.windows",
 			OnSecondInstanceLaunch: app.secondInstance,
