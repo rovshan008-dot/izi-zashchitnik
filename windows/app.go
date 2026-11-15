@@ -37,6 +37,9 @@ func linkFromArgs(args []string) *Link {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	// Сами периодически перекачиваем подписку у каждого подключения, чтобы новый
+	// сервер или протокол, добавленный на сервере, подхватывался без «Обновить» вручную.
+	a.manager.StartAutoRefresh()
 }
 
 // beforeClose: пока защита включена, крестик сворачивает окно, чтобы защита не выключилась случайно.
@@ -52,6 +55,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	a.manager.StopAutoRefresh()
 	a.manager.Stop()
 }
 

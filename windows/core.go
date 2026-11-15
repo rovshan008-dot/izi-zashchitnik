@@ -108,6 +108,68 @@ type Manager struct {
 	lastError string
 	errorSeq  int
 	busy      string
+
+	// autoRefreshStop: если не nil — фоновое автообновление подписок запущено,
+	// закрытие канала его останавливает (см. StartAutoRefresh/StopAutoRefresh).
+	autoRefreshStop chan struct{}
+}
+
+// autoRefreshInterval — как часто сами перекачиваем подписку у всех подключений,
+// чтобы новый сервер/протокол на сервере подхватывался без ручного «Обновить».
+// То же значение (60 минут), что и по умолчанию в версии для Android.
+const autoRefreshInterval = 60 * time.Minute
+
+// StartAutoRefresh включает периодическое самостоятельное обновление подписок
+// у всех подключений — вызывается один раз при старте приложения.
+func (m *Manager) StartAutoRefresh() {
+	m.mu.Lock()
+	if m.autoRefreshStop != nil {
+		m.mu.Unlock()
+		return
+	}
+	stop := make(chan struct{})
+	m.autoRefreshStop = stop
+	m.mu.Unlock()
+
+	go func() {
+		ticker := time.NewTicker(autoRefreshInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				m.refreshAllSilently()
+			case <-stop:
+				return
+			}
+		}
+	}()
+}
+
+// StopAutoRefresh останавливает фоновое автообновление (вызывается при выходе из приложения).
+func (m *Manager) StopAutoRefresh() {
+	m.mu.Lock()
+	stop := m.autoRefreshStop
+	m.autoRefreshStop = nil
+	m.mu.Unlock()
+	if stop != nil {
+		close(stop)
+	}
+}
+
+// refreshAllSilently перекачивает подписку у каждого подключения по очереди.
+// Ошибку одного подключения (сервер недоступен, нет интернета) не считаем
+// фатальной — остальные всё равно пробуем обновить, тихо, без всплывающих ошибок.
+func (m *Manager) refreshAllSilently() {
+	m.mu.Lock()
+	ids := make([]string, 0, len(m.state.Profiles))
+	for _, p := range m.state.Profiles {
+		ids = append(ids, p.ID)
+	}
+	m.mu.Unlock()
+
+	for _, id := range ids {
+		_ = m.Refresh(id)
+	}
 }
 
 func NewManager(dir string) (*Manager, error) {
