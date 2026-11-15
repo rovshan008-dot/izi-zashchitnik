@@ -149,6 +149,12 @@ class MainActivity : ComponentActivity() {
     private var pendingShareText: String? = null
     private var pendingShareImage: Uri? = null
     private var pendingEditPhotoInstruction: String? = null
+    /** Фото в активной «сессии» правки прямо в чате (без Overlay) — чтобы следующая инструкция
+     * без нового фото правила именно ЕГО, а не лезла в галерею. После каждой успешной правки
+     * заменяется на результат ЭТОЙ правки (data-url) — иначе вторая правка в духе «теперь ещё…»
+     * применилась бы к исходнику, а не к уже отредактированному фото (тот же баг, что был в Telegram). */
+    private var editSessionImage: String? = null
+    private var editSessionAt = 0L
 
     private val prefs by lazy { getSharedPreferences("izi", MODE_PRIVATE) }
 
@@ -423,8 +429,16 @@ class MainActivity : ComponentActivity() {
         pendingShareImage = null
         pendingShareText = null
         if (img != null) {
-            addMsg(Msg(true, txt?.takeIf { it.isNotBlank() } ?: "", photos = listOf(img)))
-            askBrainAboutImage(img, txt?.takeIf { it.isNotBlank() } ?: "Посмотри на это фото и скажи, что на нём.")
+            val caption = txt?.takeIf { it.isNotBlank() }
+            addMsg(Msg(true, caption ?: "", photos = listOf(img)))
+            if (caption != null && EDIT_PHOTO_REGEX.containsMatchIn(PhoneActions.normalize(caption))) {
+                // фото + подпись-инструкция одним сообщением: «вот фото, добавь надпись …» — это правка, не описание
+                performPhotoEdit(img, caption)
+            } else {
+                askBrainAboutImage(img, caption ?: "Посмотри на это фото и скажи, что на нём.")
+                // фото не для правки, а для вопроса — не тащим его в сессию редактирования
+                editSessionImage = null
+            }
         } else if (!txt.isNullOrBlank()) {
             handleText(txt)
         }
@@ -447,13 +461,27 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Первая правка фото в сессии (фото ещё как Uri — из галереи или «Поделиться»). */
     private fun performPhotoEdit(uri: Uri, instruction: String) {
-        val tok = token ?: return
         phase = Phase.Thinking
         lifecycleScope.launch {
             val dataUrl = withContext(Dispatchers.IO) { uriToDataUrl(uri) }
             if (dataUrl == null) { say("Не смог открыть это фото"); return@launch }
+            performPhotoEditDataUrl(dataUrl, instruction)
+        }
+    }
+
+    /** Повторная правка в той же сессии — фото уже как data-url (результат ПРЕДЫДУЩЕЙ правки,
+     * а не исходник), чтобы «а теперь ещё...» применялось к уже отредактированному фото. */
+    private fun performPhotoEditDataUrl(dataUrl: String, instruction: String) {
+        val tok = token ?: return
+        phase = Phase.Thinking
+        lifecycleScope.launch {
             val r = withContext(Dispatchers.IO) { IziApi.editPhoto(tok, dataUrl, instruction) }
+            if (r.error == null && !r.authExpired && !r.imageUrl.isNullOrBlank()) {
+                editSessionImage = r.imageUrl
+                editSessionAt = System.currentTimeMillis()
+            }
             onBrainReply(r)
         }
     }
@@ -632,7 +660,13 @@ class MainActivity : ComponentActivity() {
         val t = PhoneActions.normalize(raw)
         if (!EDIT_PHOTO_REGEX.containsMatchIn(t)) return false
         if (token == null) return false
-        startEditPhotoFromGallery(raw)
+        val recent = editSessionImage
+        if (recent != null && System.currentTimeMillis() - editSessionAt <= 180_000) {
+            // продолжение той же правки — используем результат ПРЕДЫДУЩЕЙ правки, не исходник и не галерею
+            performPhotoEditDataUrl(recent, raw)
+        } else {
+            startEditPhotoFromGallery(raw)
+        }
         return true
     }
 
