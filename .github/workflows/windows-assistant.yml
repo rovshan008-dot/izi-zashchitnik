@@ -1,0 +1,131 @@
+name: Сборка Изи для Windows
+
+# Голосовой помощник «Привет, Изи» для Windows (папка windows-assistant/): программа на Go,
+# окно на Wails, мозг — izi20.tech (тот же бэкенд, что у Android и веб-версии).
+
+on:
+  push:
+    branches: [main, "assist-win-*"]
+    paths:
+      - "windows-assistant/**"
+      - ".github/workflows/windows-assistant.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-assistant-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.26.10"
+  WAILS_VERSION: v2.17.1
+
+jobs:
+  build:
+    name: Программа и установщик
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Исходники
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+
+      - name: Нужна ли сборка
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          VERSION=$(python -c "import json;print(json.load(open('windows-assistant/wails.json',encoding='utf-8'))['info']['productVersion'])")
+          TAG="izi-windows-v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = "push" ] && gh release view "$TAG" >/dev/null 2>&1; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "Версия $VERSION уже выложена — пересобирать нечего. Для новой сборки увеличьте productVersion." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "Собираю $TAG." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Go
+        if: steps.plan.outputs.build == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: windows-assistant/go.mod
+
+      - name: Зависимости
+        if: steps.plan.outputs.build == 'true'
+        working-directory: windows-assistant
+        run: |
+          go mod tidy
+          go install github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}
+
+      - name: NSIS (сборщик установщика)
+        if: steps.plan.outputs.build == 'true'
+        run: |
+          if [ ! -x "/c/Program Files (x86)/NSIS/makensis.exe" ]; then
+            choco install nsis -y --no-progress
+          fi
+          echo 'C:\Program Files (x86)\NSIS' >> "$GITHUB_PATH"
+
+      - name: Сборка
+        if: steps.plan.outputs.build == 'true'
+        working-directory: windows-assistant
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          makensis -VERSION
+          LDFLAGS="-X main.appVersion=$VERSION -s -w"
+          mkdir -p dist
+          for ARCH in amd64 arm64; do
+            wails build -clean -platform windows/$ARCH -nsis -skipbindings -trimpath -ldflags "$LDFLAGS"
+            ls -la build/bin
+            cp build/bin/IziAssistant.exe "dist/IziAssistant-$ARCH.exe"
+            cp "build/bin/IziAssistant-$ARCH-installer.exe" "dist/IziAssistant-$ARCH-installer.exe"
+          done
+          ls -la dist
+
+      - name: Проверка
+        if: steps.plan.outputs.build == 'true'
+        working-directory: windows-assistant/dist
+        run: |
+          for ARCH in amd64 arm64; do
+            test -f "IziAssistant-$ARCH.exe"
+            test -f "IziAssistant-$ARCH-installer.exe"
+            echo "$ARCH: программа $(du -h IziAssistant-$ARCH.exe | cut -f1), установщик $(du -h IziAssistant-$ARCH-installer.exe | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Выложить пробную сборку
+        if: steps.plan.outputs.build == 'true'
+        working-directory: windows-assistant/dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.plan.outputs.tag }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          SETUP="IziAssistant-Windows-$VERSION-setup.exe"
+          PORTABLE="IziAssistant-Windows-$VERSION.exe"
+          SETUP_ARM="IziAssistant-Windows-ARM-$VERSION-setup.exe"
+          PORTABLE_ARM="IziAssistant-Windows-ARM-$VERSION.exe"
+          cp IziAssistant-amd64-installer.exe "$SETUP"
+          cp IziAssistant-amd64.exe "$PORTABLE"
+          cp IziAssistant-arm64-installer.exe "$SETUP_ARM"
+          cp IziAssistant-arm64.exe "$PORTABLE_ARM"
+          TITLE="Windows $VERSION (пробная)"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            TAG="$TAG-${{ github.run_number }}"
+            TITLE="$TITLE, повтор ${{ github.run_number }}"
+          fi
+          gh release create "$TAG" \
+            --prerelease \
+            --target "${{ github.sha }}" \
+            --title "$TITLE" \
+            --notes "Пробная сборка «Изи» (голосовой помощник) для Windows 10/11. Вход по коду из @IZI20bot (/web), текстовый чат и голос (запись → сервер распознаёт и отвечает). Без прав администратора. Обычный компьютер: $SETUP. Компьютер на ARM (в том числе Windows на Маке): $SETUP_ARM. Файлы без «setup» — то же без установки." \
+            "$SETUP" "$PORTABLE" "$SETUP_ARM" "$PORTABLE_ARM"

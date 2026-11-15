@@ -1,0 +1,26 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "IziAssistant",
+  "outputfilename": "IziAssistant",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "wailsjsdir": "",
+  "author": {
+    "name": "IZI",
+    "email": ""
+  },
+  "info": {
+    "companyName": "IZI",
+    "productName": "Изи",
+    "productVersion": "0.1.0",
+    "copyright": "IZI",
+    "comments": "Голосовой помощник Изи для Windows",
+    "protocols": [
+      {
+        "scheme": "izi-assistant",
+        "description": "Izi Assistant link"
+      }
+    ]
+  }
+}
