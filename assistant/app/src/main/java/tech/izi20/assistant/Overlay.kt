@@ -178,6 +178,11 @@ class VoiceOverlay(
         )
         private val CONFIRM_YES = Regex("^(да|ага|угу|конечно|именно|верно|давай|ок|норм|правильно|то( самое)? фото|это фото)\\b")
 
+        /** Сколько держать окошко открытым и слушающим без единого сказанного слова,
+         * прежде чем закрыть само — по просьбе Влада, чтобы можно было вести диалог
+         * (спросить, выслушать ответ, спросить ещё раз) не повторяя «Привет, Изи» каждый раз. */
+        private const val IDLE_TIMEOUT_MS = 4 * 60 * 1000L
+
         fun canShow(ctx: Context): Boolean {
             val okOverlay = Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(ctx)
             val locked = (ctx.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
@@ -194,6 +199,10 @@ class VoiceOverlay(
     /** Ждём ответа да/нет на «отредактировать фото, которое открыто?» — (снимок экрана, инструкция). */
     private var pendingEditConfirm: Pair<String, String>? = null
     private var closeJob: Job? = null
+    /** Таймер бездействия: пока с Изи реально разговаривают, окошко не закрывается само —
+     * закрывается только после паузы в IDLE_TIMEOUT_MS без единого распознанного слова,
+     * или когда скажут «стоп»/«закрой» (см. PhoneActions.isStop), или по крестику. */
+    private var idleJob: Job? = null
     private var closed = false
 
     private lateinit var glow: EdgeGlowView
@@ -214,7 +223,16 @@ class VoiceOverlay(
 
     fun start() {
         show()
+        resetIdleTimer()
         listen()
+    }
+
+    /** Непрерывный диалог как у Гугл-ассистента: таймер сбрасывается только на реально
+     * сказанное слово, а не на каждую попытку слушать — так пауза в разговоре (подумать,
+     * отвлечься на секунду) не закрывает окошко раньше срока. */
+    private fun resetIdleTimer() {
+        idleJob?.cancel()
+        idleJob = scope.launch { delay(IDLE_TIMEOUT_MS); close() }
     }
 
     // ---------- окна ----------
@@ -273,7 +291,7 @@ class VoiceOverlay(
         }
         chips.addView(chip("Подробнее в Изи") { openApp() }, LinearLayout.LayoutParams(-2, px(40f)))
         chips.addView(View(ctx), LinearLayout.LayoutParams(px(8f), 1))
-        chips.addView(chip("Ещё вопрос") { closeJob?.cancel(); speaker.stop(); listen() }, LinearLayout.LayoutParams(-2, px(40f)))
+        chips.addView(chip("Ещё вопрос") { closeJob?.cancel(); speaker.stop(); resetIdleTimer(); listen() }, LinearLayout.LayoutParams(-2, px(40f)))
         bubble.addView(chips, LinearLayout.LayoutParams(-2, -2).apply { topMargin = px(14f) })
         col.addView(bubble, LinearLayout.LayoutParams(-1, -2))
 
@@ -284,7 +302,7 @@ class VoiceOverlay(
             background = glassBg(32f)
             elevation = px(12f).toFloat()
         }
-        orb = SiriOrbView(ctx).apply { glow = false; setOnClickListener { closeJob?.cancel(); speaker.stop(); listen() } }
+        orb = SiriOrbView(ctx).apply { glow = false; setOnClickListener { closeJob?.cancel(); speaker.stop(); resetIdleTimer(); listen() } }
         pill.addView(orb, LinearLayout.LayoutParams(px(46f), px(46f)))
         waves = WavesView(ctx)
         pill.addView(waves, LinearLayout.LayoutParams(px(92f), px(26f)).apply { leftMargin = px(12f); rightMargin = px(12f) })
@@ -323,6 +341,7 @@ class VoiceOverlay(
         if (closed) return
         closed = true
         closeJob?.cancel()
+        idleJob?.cancel()
         listener?.cancel()
         speaker.shutdown()
         card.animate().translationY(px(360f).toFloat()).setDuration(220).withEndAction {
@@ -363,8 +382,15 @@ class VoiceOverlay(
             onFinal = { orb.level = 0f; glow.level = 0f; handle(it) },
             onFail = { code ->
                 orb.level = 0f; glow.level = 0f
-                if (code == null) { heard.text = "Не расслышал"; closeLater(1800) }
-                else { heard.text = "Распознавание речи недоступно — открой Изи"; closeLater(3000) }
+                if (code == null) {
+                    // тишина/не разобрал — это не ошибка, а естественная пауза в разговоре:
+                    // просто продолжаем слушать дальше в рамках той же сессии, окошко не закрываем
+                    // (закроется само по общему таймеру бездействия IDLE_TIMEOUT_MS, если слов так и не будет)
+                    listen()
+                } else {
+                    heard.text = "Распознавание речи недоступно — открой Изи"
+                    closeLater(3000)
+                }
             },
         )
         listener = l
@@ -372,6 +398,7 @@ class VoiceOverlay(
     }
 
     private fun handle(text: String) {
+        resetIdleTimer()
         heard.text = text
         answer.visibility = View.GONE
         ChatStore.add(ctx, Msg(true, text))
@@ -524,11 +551,11 @@ class VoiceOverlay(
         orb.mode = SiriOrbView.Mode.SPEAK
         speaker.speak(text, prefs.getString("token", null), prefs.getBoolean("server_voice", true)) {
             if (closed) return@speak
-            if (pendingAsk != null || pendingEditConfirm != null) { listen(); return@speak }
-            orb.mode = SiriOrbView.Mode.LISTEN
-            orb.level = 0f
-            waves.active = false
-            closeLater(if (image != null || text.length > 160) 9000 else 4500)
+            // Непрерывный диалог: после ответа снова слушаем, не закрываясь сразу —
+            // чтобы можно было задать следующий вопрос, не повторяя «Привет, Изи».
+            // Само окошко закроется по общему таймеру бездействия (IDLE_TIMEOUT_MS)
+            // или когда скажут «стоп»/«закрой», или по крестику.
+            listen()
         }
     }
 
