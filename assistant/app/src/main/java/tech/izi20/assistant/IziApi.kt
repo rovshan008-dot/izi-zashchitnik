@@ -112,6 +112,34 @@ object IziApi {
         Reply(null, error = "Нет связи с сервером")
     }
 
+    /** Проверка, открыто ли на экране одно фото (для «Привет Изи, отредактируй фото»). Null — фото не видно/ошибка. */
+    fun checkPhotoOnScreen(token: String, imageDataUrl: String): String? = try {
+        val (code, s) = postJson(
+            "/chat/izi_check_photo",
+            JSONObject().put("token", token).put("image", imageDataUrl),
+            30_000
+        )
+        if (code !in 200..299) null
+        else {
+            val j = JSONObject(s)
+            if (j.optBoolean("has_photo")) j.optString("description").ifEmpty { "фото" } else null
+        }
+    } catch (e: Exception) {
+        null
+    }
+
+    /** Редактирует фото (надпись или реальная правка — сервер сам решает инструментом). */
+    fun editPhoto(token: String, imageDataUrl: String, prompt: String): Reply = try {
+        val (code, s) = postJson(
+            "/chat/izi_edit_photo",
+            JSONObject().put("token", token).put("image", imageDataUrl).put("text", prompt),
+            120_000
+        )
+        parseReply(code, s)
+    } catch (e: Exception) {
+        Reply(null, error = "Нет связи с сервером")
+    }
+
     /** Голос Изи с сервера (как в веб-версии). Возвращает false — тогда говорим голосом телефона. */
     fun tts(token: String, text: String, out: File): Boolean = try {
         val c = open("/chat/izi_tts", 60_000)

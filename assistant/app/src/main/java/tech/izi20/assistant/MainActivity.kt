@@ -14,6 +14,7 @@ import android.speech.SpeechRecognizer
 import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -134,11 +135,20 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_FROM_WAKE = "izi_from_wake"
         const val EXTRA_SHARE_TEXT = "izi_share_text"
         const val EXTRA_SHARE_IMAGE = "izi_share_image"
+        const val EXTRA_EDIT_PHOTO_INSTRUCTION = "izi_edit_photo_instruction"
         @Volatile var visible = false
+
+        /** «отредактируй/измени/подправь фото», «добавь/подвинь надпись» и т.п. */
+        val EDIT_PHOTO_REGEX = Regex(
+            "(отредактир|редактир\\S*\\s*фото|измени\\s*фото|правь\\s*фото|подправ\\S*\\s*фото|" +
+            "добав\\S*\\s*(надпис|текст)|подвин\\S*\\s*(надпис|текст)|измени\\s*(надпис|текст)|" +
+            "убери\\s*(с\\s*)?фото|удали\\s*(с\\s*)?фото|поменяй\\s*фон)"
+        )
     }
 
     private var pendingShareText: String? = null
     private var pendingShareImage: Uri? = null
+    private var pendingEditPhotoInstruction: String? = null
 
     private val prefs by lazy { getSharedPreferences("izi", MODE_PRIVATE) }
 
@@ -198,6 +208,18 @@ class MainActivity : ComponentActivity() {
             pendingListen = false
             if (hasMic()) startListening()
         }
+    }
+
+    /** Пикер фото для редактирования («Привет Изи, отредактируй фото» → галерея). */
+    private val pickPhotoForEdit = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val instruction = pendingEditPhotoInstruction
+        if (uri != null && instruction != null) {
+            addMsg(Msg(true, "", photos = listOf(uri)))
+            performPhotoEdit(uri, instruction)
+        } else if (instruction != null) {
+            say("Хорошо, не буду редактировать.")
+        }
+        pendingEditPhotoInstruction = null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -269,6 +291,9 @@ class MainActivity : ComponentActivity() {
         }
         if (token != null && (pendingShareImage != null || pendingShareText != null)) {
             lifecycleScope.launch { delay(200); processShareIfAny() }
+        }
+        if (token != null && pendingEditPhotoInstruction != null) {
+            lifecycleScope.launch { delay(200); processPendingEditPhotoIfAny() }
         }
         if (token != null) startDropPoll()
     }
@@ -387,6 +412,9 @@ class MainActivity : ComponentActivity() {
         val si = i.getStringExtra(EXTRA_SHARE_IMAGE)
         if (!st.isNullOrBlank()) pendingShareText = st
         if (!si.isNullOrBlank()) pendingShareImage = try { Uri.parse(si) } catch (_: Exception) { null }
+
+        val editInstr = i.getStringExtra(EXTRA_EDIT_PHOTO_INSTRUCTION)
+        if (!editInstr.isNullOrBlank()) pendingEditPhotoInstruction = editInstr
     }
 
     private fun processShareIfAny() {
@@ -399,6 +427,34 @@ class MainActivity : ComponentActivity() {
             askBrainAboutImage(img, txt?.takeIf { it.isNotBlank() } ?: "Посмотри на это фото и скажи, что на нём.")
         } else if (!txt.isNullOrBlank()) {
             handleText(txt)
+        }
+    }
+
+    /** Приход из Overlay.kt: пользователь попросил отредактировать фото, на экране подходящего фото не нашлось — открываем галерею. */
+    private fun processPendingEditPhotoIfAny() {
+        val instr = pendingEditPhotoInstruction ?: return
+        startEditPhotoFromGallery(instr)
+    }
+
+    private fun startEditPhotoFromGallery(instruction: String) {
+        pendingEditPhotoInstruction = instruction
+        say("Открываю галерею — выбери, какое фото редактировать.")
+        try {
+            pickPhotoForEdit.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        } catch (e: Exception) {
+            pendingEditPhotoInstruction = null
+            say("Не получилось открыть галерею.")
+        }
+    }
+
+    private fun performPhotoEdit(uri: Uri, instruction: String) {
+        val tok = token ?: return
+        phase = Phase.Thinking
+        lifecycleScope.launch {
+            val dataUrl = withContext(Dispatchers.IO) { uriToDataUrl(uri) }
+            if (dataUrl == null) { say("Не смог открыть это фото"); return@launch }
+            val r = withContext(Dispatchers.IO) { IziApi.editPhoto(tok, dataUrl, instruction) }
+            onBrainReply(r)
         }
     }
 
@@ -564,9 +620,20 @@ class MainActivity : ComponentActivity() {
 
         if (handleSendToPc(t)) return
 
+        if (handleEditPhotoRequest(t)) return
+
         val local = try { PhoneActions.handle(this, t) } catch (e: Exception) { null }
         if (local != null) { showLocal(local, t); return }
         askBrain(t)
+    }
+
+    /** «отредактируй фото», «добавь надпись на фото», «подвинь надпись» и т.п. — прямо в чате Изи (без Overlay). */
+    private fun handleEditPhotoRequest(raw: String): Boolean {
+        val t = PhoneActions.normalize(raw)
+        if (!EDIT_PHOTO_REGEX.containsMatchIn(t)) return false
+        if (token == null) return false
+        startEditPhotoFromGallery(raw)
+        return true
     }
 
     /** «отправь это на комп», «скинь на компьютер <текст/ссылка>», «отправь последнее фото на комп». */

@@ -170,6 +170,14 @@ class VoiceOverlay(
                 "этот (график|текст|пост|экран|сайт)|эту (статью|картинку|страницу)|что скажешь)"
         )
 
+        /** «отредактируй фото», «добавь/подвинь надпись», «измени фон» и т.п. */
+        private val EDIT_PHOTO = Regex(
+            "(отредактир|редактир\\S*\\s*фото|измени\\s*фото|правь\\s*фото|подправ\\S*\\s*фото|" +
+            "добав\\S*\\s*(надпис|текст)|подвин\\S*\\s*(надпис|текст)|измени\\s*(надпис|текст)|" +
+            "убери\\s*(с\\s*)?фото|удали\\s*(с\\s*)?фото|поменяй\\s*фон)"
+        )
+        private val CONFIRM_YES = Regex("^(да|ага|угу|конечно|именно|верно|давай|ок|норм|правильно|то( самое)? фото|это фото)\\b")
+
         fun canShow(ctx: Context): Boolean {
             val okOverlay = Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(ctx)
             val locked = (ctx.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
@@ -183,6 +191,8 @@ class VoiceOverlay(
     private val speaker = Speaker(ctx, scope)
     private var listener: Listener? = null
     private var pendingAsk: PhoneActions.Ask? = null
+    /** Ждём ответа да/нет на «отредактировать фото, которое открыто?» — (снимок экрана, инструкция). */
+    private var pendingEditConfirm: Pair<String, String>? = null
     private var closeJob: Job? = null
     private var closed = false
 
@@ -368,17 +378,73 @@ class VoiceOverlay(
         val n = PhoneActions.normalize(text)
         if (PhoneActions.isStop(n)) { close(); return }
 
+        val editConfirm = pendingEditConfirm
+        pendingEditConfirm = null
+        if (editConfirm != null) {
+            val (shot, instruction) = editConfirm
+            if (CONFIRM_YES.containsMatchIn(n)) performEditPhoto(shot, instruction)
+            else openMainActivityForGalleryEdit(instruction)
+            return
+        }
+
         val ask = pendingAsk
         pendingAsk = null
         if (ask != null) {
             val r = try { ask.handler(ctx, text) } catch (_: Exception) { null }
             if (r != null) { showLocal(r); return }
         }
+        if (EDIT_PHOTO.containsMatchIn(n)) { handleEditPhoto(text); return }
         if (SCREEN.containsMatchIn("$n ")) { askAboutScreen(text); return }
 
         val local = try { PhoneActions.handle(ctx, text) } catch (_: Exception) { null }
         if (local != null) { showLocal(local); return }
         askBrain { tok -> IziApi.chat(tok, text) }
+    }
+
+    /** «Привет Изи» → «отредактируй фото»: смотрим, открыто ли сейчас на экране одно фото. */
+    private fun handleEditPhoto(instruction: String) {
+        val acc = IziAccessibility.instance
+        val tok = prefs.getString("token", null)
+        if (acc == null || tok == null || Build.VERSION.SDK_INT < 30) {
+            // нет доступа к экрану — сразу в галерею
+            openMainActivityForGalleryEdit(instruction)
+            return
+        }
+        orb.mode = SiriOrbView.Mode.THINK
+        status("Смотрю на экран…")
+        // прячем окошко, чтобы оно не попало в снимок
+        setVisible(false)
+        scope.launch {
+            delay(180)
+            acc.screenshot { shot ->
+                setVisible(true)
+                if (shot == null) { openMainActivityForGalleryEdit(instruction); return@screenshot }
+                orb.mode = SiriOrbView.Mode.THINK
+                status("Проверяю фото на экране…")
+                scope.launch {
+                    val desc = withContext(Dispatchers.IO) { IziApi.checkPhotoOnScreen(tok, shot) }
+                    if (desc != null) {
+                        pendingEditConfirm = shot to instruction
+                        reply("На экране похоже открыто фото — $desc. Отредактировать именно его?")
+                    } else {
+                        openMainActivityForGalleryEdit(instruction)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun performEditPhoto(imageDataUrl: String, instruction: String) {
+        askBrain { tok -> IziApi.editPhoto(tok, imageDataUrl, instruction) }
+    }
+
+    /** Фото на экране не подошло — открываем MainActivity, она покажет пикер галереи. */
+    private fun openMainActivityForGalleryEdit(instruction: String) {
+        val i = Intent(ctx, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra(MainActivity.EXTRA_EDIT_PHOTO_INSTRUCTION, instruction)
+        try { ctx.startActivity(i) } catch (_: Exception) {}
+        close()
     }
 
     private fun showLocal(l: PhoneActions.Local) {
@@ -458,7 +524,7 @@ class VoiceOverlay(
         orb.mode = SiriOrbView.Mode.SPEAK
         speaker.speak(text, prefs.getString("token", null), prefs.getBoolean("server_voice", true)) {
             if (closed) return@speak
-            if (pendingAsk != null) { listen(); return@speak }
+            if (pendingAsk != null || pendingEditConfirm != null) { listen(); return@speak }
             orb.mode = SiriOrbView.Mode.LISTEN
             orb.level = 0f
             waves.active = false
