@@ -423,6 +423,17 @@ class VoiceOverlay(
         if (EDIT_PHOTO.containsMatchIn(n)) { handleEditPhoto(text); return }
         if (SCREEN.containsMatchIn("$n ")) { askAboutScreen(text); return }
 
+        // скринер ходит в сеть, поэтому отдельно от PhoneActions и в фоне
+        if (Screener.matches(n)) {
+            orb.mode = SiriOrbView.Mode.THINK
+            if (answer.visibility != View.VISIBLE) status("Смотрю скринер…")
+            scope.launch {
+                val ans = withContext(Dispatchers.IO) { Screener.answer(n) }
+                if (ans != null) reply(ans) else askBrain { tok -> IziApi.chat(tok, text) }
+            }
+            return
+        }
+
         val local = try { PhoneActions.handle(ctx, text) } catch (_: Exception) { null }
         if (local != null) { showLocal(local); return }
         askBrain { tok -> IziApi.chat(tok, text) }

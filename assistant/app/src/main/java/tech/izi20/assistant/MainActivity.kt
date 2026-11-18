@@ -656,9 +656,21 @@ class MainActivity : ComponentActivity() {
 
         if (handleEditPhotoRequest(t)) return
 
+        // скринер ходит в сеть, поэтому отдельно от PhoneActions и в фоне
+        if (Screener.matches(PhoneActions.normalize(t))) { askScreener(t); return }
+
         val local = try { PhoneActions.handle(this, t) } catch (e: Exception) { null }
         if (local != null) { showLocal(local, t); return }
         askBrain(t)
+    }
+
+    /** «что по битку», «что на скринере» — живые цифры Binance, без нейросети. */
+    private fun askScreener(raw: String) {
+        phase = Phase.Thinking
+        lifecycleScope.launch {
+            val ans = withContext(Dispatchers.IO) { Screener.answer(PhoneActions.normalize(raw)) }
+            if (ans != null) say(ans) else askBrain(raw)
+        }
     }
 
     /** «отредактируй фото», «добавь надпись на фото», «подвинь надпись» и т.п. — прямо в чате Изи (без Overlay). */

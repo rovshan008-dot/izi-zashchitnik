@@ -58,6 +58,7 @@ object PhoneActions {
         if (t.isEmpty()) return null
         if (Regex("^(что ты (умеешь|можешь)|что умеешь|что можешь|твои возможности|помощь|что ты такое|кто ты|расскажи о себе)").containsMatchIn(t)) return Local(INTRO)
         return timeAndDate(t)
+            ?: MediaActions.handle(ctx, t)
             ?: vpn(ctx, t)
             ?: Photos.handle(ctx, t)
             ?: Messaging.handle(ctx, t)
