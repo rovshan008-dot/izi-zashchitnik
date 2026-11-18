@@ -120,6 +120,12 @@ func (a *App) SendText(text string) Reply {
 	if token == "" {
 		return Reply{AuthExpired: true}
 	}
+	// «открой телеграм», «что по битку» — это компьютер умеет сам: быстрее и без расхода токенов.
+	if ans := a.localAnswer(text); ans != "" {
+		a.store.Add(Msg{ID: nextID(), Mine: true, Text: text})
+		a.store.Add(Msg{ID: nextID(), Mine: false, Text: ans})
+		return Reply{Text: ans}
+	}
 	a.store.Add(Msg{ID: nextID(), Mine: true, Text: text})
 	r := Chat(token, text)
 	if r.AuthExpired {
@@ -149,6 +155,11 @@ func (a *App) SendVoice(base64Audio string) Reply {
 	}
 	if r.Recognized != "" {
 		a.store.Add(Msg{ID: nextID(), Mine: true, Text: r.Recognized})
+		// распознавание речи живёт на сервере, поэтому команду разбираем уже после ответа
+		// и, если это команда, ответ модели заменяем на своё действие
+		if ans := a.localAnswer(r.Recognized); ans != "" {
+			r.Text, r.ImageURL = ans, ""
+		}
 	}
 	if r.Text != "" || r.ImageURL != "" {
 		a.store.Add(Msg{ID: nextID(), Mine: false, Text: r.Text, Image: r.ImageURL})
@@ -200,13 +211,41 @@ func (a *App) SendDropFiles(paths []string) []DropSendResult {
 	}
 	for _, p := range paths {
 		name := filepath.Base(p)
-		if err := DropSendFile(token, p); err != nil {
+		id := fmt.Sprintf("up-%d", nextID())
+		var size int64
+		if st, err := os.Stat(p); err == nil {
+			size = st.Size()
+		}
+		a.emit("transfer-start", TransferEvent{ID: id, Dir: "up", Name: name, Total: size})
+		err := DropSendFile(token, p, func(done, total int64) {
+			a.emit("transfer-progress", TransferEvent{ID: id, Dir: "up", Name: name, Done: done, Total: total})
+		})
+		if err != nil {
+			a.emit("transfer-done", TransferEvent{ID: id, Dir: "up", Name: name, Total: size, Error: err.Error()})
 			out = append(out, DropSendResult{Name: name, OK: false, Error: err.Error()})
 			continue
 		}
+		a.emit("transfer-done", TransferEvent{ID: id, Dir: "up", Name: name, Total: size, Done: size, OK: true})
 		out = append(out, DropSendResult{Name: name, OK: true})
 	}
 	return out
+}
+
+// TransferEvent — то, что показывает карточка передачи файла на экране.
+type TransferEvent struct {
+	ID    string `json:"id"`
+	Dir   string `json:"dir"` // "up" — на телефон, "down" — с телефона
+	Name  string `json:"name"`
+	Done  int64  `json:"done"`
+	Total int64  `json:"total"`
+	OK    bool   `json:"ok,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+func (a *App) emit(name string, data any) {
+	if a.ctx != nil {
+		runtime.EventsEmit(a.ctx, name, data)
+	}
 }
 
 // SendDropText — отправить на телефон текст или ссылку.
@@ -311,15 +350,26 @@ func (a *App) handleDropItem(token string, item DropItem) {
 	view := DropItemView{ID: item.ID, Kind: item.Kind, Text: item.Text, Name: item.Name, Mime: item.Mime, Size: item.Size}
 	if item.Kind == "file" {
 		dest := filepath.Join(a.receiveDir, uniqueName(a.receiveDir, item.Name))
-		if err := DropDownload(token, item.ID, dest); err != nil {
+		name := item.Name
+		if name == "" {
+			name = "файл"
+		}
+		a.emit("transfer-start", TransferEvent{ID: item.ID, Dir: "down", Name: name, Total: item.Size})
+		err := DropDownload(token, item.ID, dest, func(done, total int64) {
+			if total <= 0 {
+				total = item.Size
+			}
+			a.emit("transfer-progress", TransferEvent{ID: item.ID, Dir: "down", Name: name, Done: done, Total: total})
+		})
+		if err != nil {
 			view.Error = "Не скачалось: " + err.Error()
+			a.emit("transfer-done", TransferEvent{ID: item.ID, Dir: "down", Name: name, Total: item.Size, Error: view.Error})
 		} else {
 			view.LocalPath = dest
+			a.emit("transfer-done", TransferEvent{ID: item.ID, Dir: "down", Name: name, Total: item.Size, Done: item.Size, OK: true})
 		}
 	}
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "drop-item", view)
-	}
+	a.emit("drop-item", view)
 }
 
 func uniqueName(dir, name string) string {
@@ -340,4 +390,26 @@ func uniqueName(dir, name string) string {
 // OpenReceivedFolder — открыть папку "Перенос" с скачанными файлами в проводнике Windows.
 func (a *App) OpenReceivedFolder() {
 	_ = exec.Command("explorer", a.receiveDir).Start()
+}
+
+// OpenFile — открыть скачанный файл тем, чем его открывает Windows (кнопка «Открыть» в карточке).
+func (a *App) OpenFile(path string) bool {
+	if path == "" {
+		return false
+	}
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	return launch(path) == nil
+}
+
+// ShowInFolder — открыть проводник и выделить в нём файл (кнопка «Папка»).
+func (a *App) ShowInFolder(path string) bool {
+	if path == "" {
+		return false
+	}
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	return exec.Command("explorer", "/select,"+path).Start() == nil
 }

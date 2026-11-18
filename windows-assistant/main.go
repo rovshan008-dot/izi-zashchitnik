@@ -31,13 +31,14 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	initScenarios(dataDir)
 	app := NewApp(store)
 
 	err = wails.Run(&options.App{
 		Title:            "Изи",
-		Width:            420,
+		Width:            480,
 		Height:           760,
-		MinWidth:         360,
+		MinWidth:         430,
 		MinHeight:        560,
 		BackgroundColour: &options.RGBA{R: 7, G: 7, B: 11, A: 255},
 		AssetServer:      &assetserver.Options{Assets: assets},

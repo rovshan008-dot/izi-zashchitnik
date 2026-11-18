@@ -35,6 +35,8 @@
       <nav class="tabs">
         <button id="tab-chat-btn" class="tab-btn active" data-tab="chat">Чат</button>
         <button id="tab-drop-btn" class="tab-btn" data-tab="drop">Перенос</button>
+        <button id="tab-scr-btn" class="tab-btn" data-tab="scr">Скринер</button>
+        <button id="tab-scen-btn" class="tab-btn" data-tab="scen">Сценарии</button>
       </nav>
       <button id="menu-btn" class="icon-btn" title="Меню" aria-label="Меню">⋮</button>
       <div id="menu" class="menu" hidden>
@@ -85,7 +87,53 @@
         </div>
       </div>
     </div>
+    <!-- вкладка: скринер -->
+    <div id="tab-scr" class="tab-pane" hidden>
+      <div class="scr-head">
+        <div class="chips">
+          <button class="chip active" data-sort="gainers">Рост</button>
+          <button class="chip" data-sort="losers">Падение</button>
+          <button class="chip" data-sort="volume">Объём</button>
+        </div>
+        <span class="scr-time" id="scr-time"></span>
+      </div>
+      <div id="scr-list" class="scr-list"></div>
+      <p class="scr-foot">Binance Futures через свой сервер. Нажми монету — Изи пришлёт срез в чат.</p>
+    </div>
+
+    <!-- вкладка: сценарии -->
+    <div id="tab-scen" class="tab-pane" hidden>
+      <div class="scen-scroll">
+        <div id="scen-list" class="scen-list"></div>
+        <button id="scen-new-btn" class="wide-btn">+ Новый сценарий</button>
+        <p class="scen-hint">Сценарий — своя команда. Говоришь фразу, Изи проходит шаги по очереди.
+          Сценарии хранятся на этом компьютере и запускаются только твоей фразой.</p>
+
+        <div id="scen-editor" class="scen-editor" hidden>
+          <label class="fld">
+            <span>Название</span>
+            <input id="scen-name" class="text-input" placeholder="Утро" autocomplete="off" />
+          </label>
+          <label class="fld">
+            <span>Фразы, через запятую</span>
+            <input id="scen-phrases" class="text-input" placeholder="доброе утро, рабочий режим" autocomplete="off" />
+          </label>
+          <div class="fld">
+            <span>Шаги</span>
+            <div id="scen-steps" class="scen-steps"></div>
+            <button id="scen-add-step" class="wide-btn ghost">+ Шаг</button>
+          </div>
+          <div class="scen-actions">
+            <button id="scen-save" class="wide-btn primary">Сохранить</button>
+            <button id="scen-cancel" class="wide-btn ghost">Отмена</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
+
+  <!-- карточки передачи файлов, поверх всего -->
+  <div id="transfers" class="transfers"></div>
 
   <!-- диалог "Куда это?" при перетаскивании фото -->
   <div id="drop-dialog" class="modal" hidden>

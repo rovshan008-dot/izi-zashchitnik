@@ -178,6 +178,31 @@ type DropPoll struct {
 }
 
 // DropSendText — отправить текст или ссылку на телефон.
+// ---------- прогресс передачи ----------
+
+// progressFn вызывается по мере передачи байтов; total == -1, если размер неизвестен.
+type progressFn func(done, total int64)
+
+// countingReader считает прочитанные байты и сообщает наружу не чаще раза в 100 мс,
+// чтобы не заваливать окно событиями.
+type countingReader struct {
+	r     io.Reader
+	cb    progressFn
+	done  int64
+	total int64
+	last  time.Time
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.done += int64(n)
+	if c.cb != nil && (err != nil || time.Since(c.last) >= 100*time.Millisecond) {
+		c.last = time.Now()
+		c.cb(c.done, c.total)
+	}
+	return n, err
+}
+
 func DropSendText(token, text string, link bool) bool {
 	kind := "text"
 	if link {
@@ -190,11 +215,11 @@ func DropSendText(token, text string, link bool) bool {
 	_ = w.WriteField("kind", kind)
 	_ = w.WriteField("text", text)
 	_ = w.Close()
-	return dropSendRaw(&buf, w.FormDataContentType())
+	return dropSendRaw(&buf, int64(buf.Len()), w.FormDataContentType(), nil)
 }
 
-// DropSendFile — отправить файл с диска на телефон.
-func DropSendFile(token, path string) error {
+// DropSendFile — отправить файл с диска на телефон. cb получает ход передачи (можно nil).
+func DropSendFile(token, path string, cb progressFn) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -214,17 +239,23 @@ func DropSendFile(token, path string) error {
 		return err
 	}
 	_ = w.Close()
-	if !dropSendRaw(&buf, w.FormDataContentType()) {
+	// прогресс считаем по телу запроса: именно его читает сетевой слой, когда отдаёт файл серверу
+	if !dropSendRaw(&buf, int64(buf.Len()), w.FormDataContentType(), cb) {
 		return fmt.Errorf("сервер не принял файл")
 	}
 	return nil
 }
 
-func dropSendRaw(body *bytes.Buffer, contentType string) bool {
-	req, err := http.NewRequest(http.MethodPost, apiBase+"/chat/drop/send", body)
+func dropSendRaw(body *bytes.Buffer, length int64, contentType string, cb progressFn) bool {
+	var src io.Reader = body
+	if cb != nil {
+		src = &countingReader{r: body, cb: cb, total: length}
+	}
+	req, err := http.NewRequest(http.MethodPost, apiBase+"/chat/drop/send", src)
 	if err != nil {
 		return false
 	}
+	req.ContentLength = length
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("User-Agent", "IziWindows/1")
 	c := &http.Client{Timeout: 120 * time.Second}
@@ -275,7 +306,8 @@ func DropFetch(token string, since float64, wait bool) DropPoll {
 }
 
 // DropDownload — скачать присланный файл по id, сохранить по указанному пути.
-func DropDownload(token, id, destPath string) error {
+// cb получает ход скачивания (можно nil).
+func DropDownload(token, id, destPath string, cb progressFn) error {
 	b, _ := json.Marshal(map[string]any{"token": token, "id": id})
 	req, err := http.NewRequest(http.MethodPost, apiBase+"/chat/drop/get", bytes.NewReader(b))
 	if err != nil {
@@ -297,7 +329,15 @@ func DropDownload(token, id, destPath string) error {
 		return err
 	}
 	defer out.Close()
-	_, err = io.Copy(out, resp.Body)
+	var src io.Reader = resp.Body
+	if cb != nil {
+		total := resp.ContentLength
+		if total <= 0 {
+			total = -1
+		}
+		src = &countingReader{r: resp.Body, cb: cb, total: total}
+	}
+	_, err = io.Copy(out, src)
 	return err
 }
 
