@@ -28,7 +28,9 @@ object ChatStore {
                 val ph = o.optJSONArray("photos")
                 val photos = mutableListOf<Uri>()
                 if (ph != null) for (j in 0 until ph.length()) photos += Uri.parse(ph.getString(j))
-                list += Msg(o.optBoolean("me"), o.optString("text"), o.optString("image").ifEmpty { null }, photos)
+                // ts мог не сохраниться в старых переписках — тогда 0, и время просто не покажем
+                list += Msg(o.optBoolean("me"), o.optString("text"), o.optString("image").ifEmpty { null },
+                    photos, o.optLong("ts", 0L))
             }
         } catch (_: Exception) {}
         cache = list
@@ -56,7 +58,7 @@ object ChatStore {
             val a = JSONArray()
             for (m in list) {
                 a.put(JSONObject().put("me", m.me).put("text", m.text).put("image", m.image ?: "")
-                    .put("photos", JSONArray(m.photos.map { it.toString() })))
+                    .put("photos", JSONArray(m.photos.map { it.toString() })).put("ts", m.ts))
             }
             file(ctx).writeText(a.toString())
         } catch (_: Exception) {}

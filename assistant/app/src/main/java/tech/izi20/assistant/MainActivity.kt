@@ -92,7 +92,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.TextUnit
@@ -126,7 +125,14 @@ private val Dim = Color(0xFF8C88A0)
 
 enum class Phase { Idle, Listening, Thinking, Speaking }
 
-data class Msg(val me: Boolean, val text: String, val image: String? = null, val photos: List<Uri> = emptyList())
+data class Msg(
+    val me: Boolean,
+    val text: String,
+    val image: String? = null,
+    val photos: List<Uri> = emptyList(),
+    /** Когда сказано. Нужно, чтобы в переписке было видно порядок и время реплик. */
+    val ts: Long = System.currentTimeMillis(),
+)
 
 class MainActivity : ComponentActivity() {
 
@@ -1098,14 +1104,36 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Одна реплика. Вопрос — мелко и приглушённо, последний ответ Изи — крупно, старые — тише. */
+    /** Часы и минуты реплики. Пусто для старых сообщений, записанных до появления времени. */
+    private fun clock(ts: Long): String =
+        if (ts <= 0L) "" else android.text.format.DateFormat.format("HH:mm", ts).toString()
+
+    /**
+     * Одна реплика. Твоя — плашкой справа, ответ Изи — во всю ширину слева.
+     * Раньше различались только размером шрифта и прозрачностью, и в длинной переписке
+     * вопрос было не отличить от старого ответа.
+     */
     @Composable
     private fun Exchange(m: Msg, lastIzi: Boolean) {
+        val time = clock(m.ts)
         if (m.me) {
-            Text(m.text, style = txt(15, 400, D.Dim, 21), modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+            Column(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalAlignment = Alignment.End) {
+                Box(
+                    Modifier
+                        .widthIn(max = 280.dp)
+                        .background(D.Violet, RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp))
+                        .padding(horizontal = 13.dp, vertical = 9.dp)
+                ) {
+                    Text(m.text, style = txt(15, 400, Color.White, 21))
+                }
+                if (time.isNotEmpty()) {
+                    Spacer(Modifier.height(3.dp))
+                    Text(time, style = txt(11, 400, D.Dim, 14))
+                }
+            }
             return
         }
-        Column(Modifier.fillMaxWidth().alpha(if (lastIzi) 1f else 0.6f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (m.image != null) RemoteImage(m.image)
             if (m.text.isNotBlank()) {
                 SelectionContainer {
@@ -1116,6 +1144,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             if (m.photos.isNotEmpty()) PhotoGrid(m.photos)
+            if (time.isNotEmpty()) Text(time, style = txt(11, 400, D.Dim, 14))
         }
     }
 
