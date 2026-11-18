@@ -11,8 +11,41 @@ import (
 )
 
 type Intent struct {
-	Kind   string // "open" | "folder" | "coin" | "screener" | ""
+	Kind   string // open | site | folder | drop-folder | coin | screener | screen | ""
 	Target string
+}
+
+// screenWords — слово «экран» в любом падеже. Сравниваем по целому слову, иначе
+// «открой экранную клавиатуру» уедет в зрение.
+var screenWords = map[string]bool{
+	"экран": true, "экране": true, "экрана": true, "экрану": true, "экраном": true,
+}
+
+// screenVerbs — с чем «экран» означает «посмотри», а не «открой».
+var screenVerbs = []string{
+	"посмотри", "глянь", "смотри", "взгляни", "сними", "что", "чего", "оцени",
+	"проанализируй", "анализ", "разбери", "объясни", "переведи", "прочитай", "видишь",
+}
+
+// wantsScreen — просит ли человек посмотреть на экран.
+func wantsScreen(s string) bool {
+	words := strings.Fields(s)
+	hasScreen := false
+	for _, w := range words {
+		if screenWords[strings.Trim(w, ".,!?;:")] {
+			hasScreen = true
+			break
+		}
+	}
+	if !hasScreen {
+		return false
+	}
+	for _, v := range screenVerbs {
+		if strings.HasPrefix(s, v) || strings.Contains(s, " "+v) {
+			return true
+		}
+	}
+	return false
 }
 
 var openVerbs = []string{
@@ -87,6 +120,9 @@ func ParseIntent(text string) Intent {
 		return Intent{}
 	}
 
+	if wantsScreen(s) {
+		return Intent{Kind: "screen", Target: text}
+	}
 	for _, p := range dropFolderPhrases {
 		if s == p {
 			return Intent{Kind: "drop-folder"}
@@ -125,6 +161,16 @@ func ParseIntent(text string) Intent {
 			return Intent{}
 		}
 		return Intent{Kind: kind, Target: rest}
+	}
+
+	// «напечатай привет», «набери текст»
+	for _, lead := range []string{"напечатай", "набери", "напиши в окно", "впиши"} {
+		if strings.HasPrefix(s, lead+" ") {
+			rest := strings.TrimSpace(strings.TrimPrefix(s, lead))
+			if rest != "" {
+				return Intent{Kind: "type", Target: rest}
+			}
+		}
 	}
 
 	// «что по битку», «курс эфира», или просто «биток»
@@ -186,8 +232,16 @@ func (a *App) localAnswer(text string) string {
 		return sc.Name + ": готово"
 	}
 
+	// громкость, музыка, окна, сон, «нажми ctrl+c»
+	if ans := a.tryActions(cleanPhrase(text)); ans != "" {
+		return ans
+	}
+
 	in := ParseIntent(text)
 	switch in.Kind {
+	case "type":
+		return a.TypeInFront(in.Target)
+
 	case "drop-folder":
 		a.OpenReceivedFolder()
 		return "Открыл папку «Перенос» — там всё, что пришло с телефона."

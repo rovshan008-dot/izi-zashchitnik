@@ -350,11 +350,13 @@
   let mediaRecorder = null;
   let chunks = [];
   let recording = false;
+  let cancelled = false; // запись бросили, отправлять её не надо
 
-  async function startRecording() {
+  async function startRecording(auto) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       chunks = [];
+      cancelled = false;
       const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
       mediaRecorder = new MediaRecorder(stream, { mimeType: mime });
       mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
@@ -362,6 +364,7 @@
         stream.getTracks().forEach((t) => t.stop());
         recIndicator.hidden = true;
         micBtn.classList.remove("recording");
+        if (cancelled) { cancelled = false; chunks = []; return; }
         if (chunks.length === 0) return;
         const blob = new Blob(chunks, { type: mime });
         const buf = await blob.arrayBuffer();
@@ -391,9 +394,61 @@
       micBtn.classList.add("recording");
       recIndicator.hidden = false;
       setOrbState("listening");
+      if (auto) armAutoStop(stream);
     } catch (e) {
       addMessageEl(false, "⚠ Нет доступа к микрофону");
     }
+  }
+
+  // Когда Изи позвали голосом или клавишей, кнопку никто не держит — значит
+  // останавливаемся сами: по тишине, но не раньше, чем человек начал говорить.
+  function armAutoStop(stream) {
+    let ctx, analyser;
+    try {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+    } catch (e) {
+      // без разбора звука просто ограничимся временем
+      setTimeout(() => { if (recording) stopRecording(); }, 7000);
+      return;
+    }
+    const buf = new Uint8Array(analyser.fftSize);
+    const startedAt = Date.now();
+    let spokeAt = 0;
+    let quietSince = 0;
+    const timer = setInterval(() => {
+      if (!recording) { clearInterval(timer); ctx.close().catch(() => {}); return; }
+      analyser.getByteTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
+      const rms = Math.sqrt(sum / buf.length);
+      const now = Date.now();
+      if (rms > 0.035) { spokeAt = now; quietSince = 0; }
+      else if (!quietSince) quietSince = now;
+
+      const tooLong = now - startedAt > 15000;
+      const gaveUp = !spokeAt && now - startedAt > 4000;           // так и не заговорил
+      const finished = spokeAt && quietSince && now - quietSince > 1100; // договорил
+      if (tooLong || gaveUp || finished) {
+        clearInterval(timer);
+        ctx.close().catch(() => {});
+        if (recording) {
+          if (gaveUp) cancelRecording();
+          else stopRecording();
+        }
+      }
+    }, 120);
+  }
+
+  // cancelRecording — бросить запись, ничего не отправляя (никто так и не заговорил).
+  function cancelRecording() {
+    if (!mediaRecorder || !recording) return;
+    recording = false;
+    cancelled = true;
+    setOrbState("");
+    mediaRecorder.stop();
   }
 
   function stopRecording() {
@@ -678,11 +733,16 @@
     ["coin", "Срез по монете"],
     ["screener", "Сводка рынка"],
     ["wait", "Подождать, сек"],
+    ["keys", "Нажать клавиши"],
+    ["type", "Напечатать текст"],
+    ["power", "Питание"],
     ["cmd", "Команда"],
   ];
   const STEP_HINT = {
     app: "телеграм", site: "скринер", folder: "загрузки", say: "С добрым утром",
-    coin: "биток", screener: "— ничего вводить не надо", wait: "3", cmd: "shutdown /h",
+    coin: "биток", screener: "— ничего вводить не надо", wait: "3",
+    keys: "win+d", type: "текст в активное окно", power: "sleep / lock / shutdown / reboot",
+    cmd: "любая команда Windows",
   };
   let editingId = "";
 
@@ -793,5 +853,87 @@
     });
   }
 
+  // ======================= зрение и пробуждение =======================
+
+  const eyeBtn = document.getElementById("eye-btn");
+  const wakeBtn = document.getElementById("wake-btn");
+  const wakeState = document.getElementById("wake-state");
+  const wakeNote = document.getElementById("wake-note");
+  const hotkeyNote = document.getElementById("hotkey-note");
+
+  async function lookAtScreen(question) {
+    if (eyeBtn.classList.contains("busy")) return;
+    eyeBtn.classList.add("busy");
+    setOrbState("thinking");
+    const typing = addMessageEl(false, "смотрю на экран…");
+    typing.classList.add("typing");
+    try {
+      const r = await App().LookAtScreen(question || "");
+      typing.remove();
+      setOrbState("");
+      eyeBtn.classList.remove("busy");
+      if (handleAuthExpired(r)) return;
+      if (r.error) { addMessageEl(false, "⚠ " + r.error); return; }
+      await loadHistory();
+      if (r.text && !r.silent) speakReply(r.text);
+    } catch (e) {
+      typing.remove();
+      setOrbState("");
+      eyeBtn.classList.remove("busy");
+      addMessageEl(false, "⚠ Нет связи с сервером");
+    }
+  }
+  eyeBtn.addEventListener("click", () => { switchTab("chat"); lookAtScreen(""); });
+
+  const WAKE_TEXT = {
+    ready: ["слушаю", "on", ""],
+    starting: ["включаю…", "", ""],
+    off: ["выключено", "", ""],
+    "no-ru": ["нет русского", "bad",
+      "Windows не нашёл русский речевой пакет. Параметры → Время и язык → Речь → добавить русский. " +
+      "Пока его нет, зови Изи клавишей."],
+    "no-speech": ["недоступно", "bad", "В этой Windows нет встроенного распознавания речи. Зови Изи клавишей."],
+    "no-mic": ["нет микрофона", "bad", "Windows не видит микрофон. Проверь, что он выбран в параметрах звука."],
+    error: ["не вышло", "bad", "Не удалось запустить распознавание. Зови Изи клавишей."],
+  };
+
+  function showWakeStatus(st) {
+    const v = WAKE_TEXT[st] || WAKE_TEXT.off;
+    wakeState.textContent = v[0];
+    wakeState.className = "menu-state" + (v[1] ? " " + v[1] : "");
+    wakeNote.textContent = v[2] || "";
+    wakeNote.hidden = !v[2];
+  }
+
+  let wakeOn = true;
+  wakeBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    wakeOn = !wakeOn;
+    showWakeStatus(wakeOn ? "starting" : "off");
+    const st = await App().SetWakeEnabled(wakeOn);
+    showWakeStatus(st);
+  });
+
+  async function initWake() {
+    try {
+      wakeOn = await App().WakeEnabled();
+      showWakeStatus(wakeOn ? await App().WakeStatus() : "off");
+      const hk = await App().HotkeyWorks();
+      hotkeyNote.textContent = hk
+        ? "Ctrl + Shift + Пробел — позвать из любого места"
+        : "Ctrl + Shift + Пробел занят другой программой — зови Изи из окна";
+    } catch (e) { /* старая сборка без пробуждения — не беда */ }
+  }
+
+  if (window.runtime && window.runtime.EventsOn) {
+    window.runtime.EventsOn("wake-status", (st) => showWakeStatus(st));
+    window.runtime.EventsOn("wake", () => {
+      switchTab("chat");
+      menu.hidden = true;
+      if (!recording) startRecording(true);
+    });
+  }
+
   init();
+  initWake();
 })();

@@ -337,3 +337,15 @@ html, body {
 }
 .step-row .text-input { flex: 1; min-width: 0; }
 .scen-actions { display: flex; gap: 8px; }
+
+/* ---------- меню: «Привет, Изи» ---------- */
+.menu-toggle { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.menu-state { font-size: 11px; color: var(--dim); }
+.menu-state.on { color: var(--green); }
+.menu-state.bad { color: var(--pink); }
+.menu-note {
+  padding: 6px 12px 8px; font-size: 10.5px; color: var(--dim);
+  line-height: 1.5; max-width: 230px;
+}
+#eye-btn { margin-right: 2px; }
+#eye-btn.busy { color: var(--accent); animation: pulse 1.2s ease-in-out infinite; }

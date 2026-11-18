@@ -23,6 +23,7 @@ type App struct {
 	mu          sync.Mutex
 	quitting    bool
 	dropPolling bool
+	hotkeyOK    bool
 }
 
 func NewApp(store *Store) *App {
@@ -38,6 +39,38 @@ func (a *App) startup(ctx context.Context) {
 	a.receiveDir = filepath.Join(base, "IziAssistant", "Перенос")
 	_ = os.MkdirAll(a.receiveDir, 0o755)
 	a.maybeStartDropPolling()
+
+	// Ctrl+Shift+Пробел — позвать Изи откуда угодно
+	a.hotkeyOK = startHotkey(a.onWake)
+
+	// «Привет, Изи» — если человек его не выключал
+	if a.store.WakeOn() {
+		go a.StartWake()
+	}
+}
+
+// showWindow — поднять окно поверх остальных и развернуть, если было свёрнуто.
+func (a *App) showWindow() {
+	if a.ctx == nil {
+		return
+	}
+	runtime.WindowShow(a.ctx)
+	runtime.WindowUnminimise(a.ctx)
+}
+
+// HotkeyWorks — удалось ли занять Ctrl+Shift+Пробел (могла забрать другая программа).
+func (a *App) HotkeyWorks() bool { return a.hotkeyOK }
+
+// WakeEnabled / SetWakeEnabled — переключатель «Привет, Изи» в окне.
+func (a *App) WakeEnabled() bool { return a.store.WakeOn() }
+
+func (a *App) SetWakeEnabled(on bool) string {
+	a.store.SetWakeOn(on)
+	if !on {
+		a.StopWake()
+		return "off"
+	}
+	return a.StartWake()
 }
 
 // domReady: регистрируем приём файлов, которые перетащили прямо в окно (нативный drag&drop Wails).
@@ -120,6 +153,10 @@ func (a *App) SendText(text string) Reply {
 	if token == "" {
 		return Reply{AuthExpired: true}
 	}
+	// «посмотри на экран» — снимаем экран и отправляем картинку вместе с вопросом
+	if ParseIntent(text).Kind == "screen" {
+		return a.LookAtScreen(text)
+	}
 	// «открой телеграм», «что по битку» — это компьютер умеет сам: быстрее и без расхода токенов.
 	if ans := a.localAnswer(text); ans != "" {
 		a.store.Add(Msg{ID: nextID(), Mine: true, Text: text})
@@ -154,9 +191,17 @@ func (a *App) SendVoice(base64Audio string) Reply {
 		return r
 	}
 	if r.Recognized != "" {
-		a.store.Add(Msg{ID: nextID(), Mine: true, Text: r.Recognized})
 		// распознавание речи живёт на сервере, поэтому команду разбираем уже после ответа
-		// и, если это команда, ответ модели заменяем на своё действие
+		if ParseIntent(r.Recognized).Kind == "screen" {
+			// голосом попросили посмотреть на экран — спрашиваем заново, уже с картинкой
+			sr := a.LookAtScreen(r.Recognized)
+			if sr.Error == "" && sr.Text != "" {
+				sr.Recognized = r.Recognized
+				return sr
+			}
+		}
+		a.store.Add(Msg{ID: nextID(), Mine: true, Text: r.Recognized})
+		// если это команда для самого компьютера, ответ модели заменяем на своё действие
 		if ans := a.localAnswer(r.Recognized); ans != "" {
 			r.Text, r.ImageURL = ans, ""
 		}

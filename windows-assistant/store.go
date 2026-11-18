@@ -20,6 +20,7 @@ type stateFile struct {
 	Token     string  `json:"token"`
 	Messages  []Msg   `json:"messages"`
 	DropSince float64 `json:"dropSince"`
+	WakeOff   bool    `json:"wakeOff"` // по умолчанию «Привет, Изи» включён, поэтому храним выключение
 }
 
 type Store struct {
@@ -104,4 +105,18 @@ func (s *Store) Add(m Msg) {
 		s.data.Messages = s.data.Messages[len(s.data.Messages)-400:]
 	}
 	s.save()
+}
+
+// WakeOn — слушать ли «Привет, Изи». По умолчанию да.
+func (s *Store) WakeOn() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.data.WakeOff
+}
+
+func (s *Store) SetWakeOn(on bool) {
+	s.mu.Lock()
+	s.data.WakeOff = !on
+	s.save()
+	s.mu.Unlock()
 }

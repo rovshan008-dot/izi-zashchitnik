@@ -41,6 +41,7 @@ type Scenario struct {
 var stepKinds = map[string]bool{
 	"app": true, "site": true, "folder": true, "say": true,
 	"coin": true, "screener": true, "wait": true, "cmd": true,
+	"keys": true, "type": true, "power": true,
 }
 
 type scenarioBook struct {
@@ -263,6 +264,18 @@ func (a *App) runSteps(sc *Scenario) string {
 					d = 60 * time.Second
 				}
 				time.Sleep(d)
+			}
+		case "keys":
+			if a.PressKeys(st.Value) {
+				done = append(done, "нажал "+st.Value)
+			} else {
+				failed = append(failed, "клавиши "+st.Value)
+			}
+		case "type":
+			a.TypeText(st.Value)
+		case "power":
+			if !power(st.Value) {
+				failed = append(failed, "питание: "+st.Value)
 			}
 		case "cmd":
 			if err := runCommand(st.Value); err != nil {
