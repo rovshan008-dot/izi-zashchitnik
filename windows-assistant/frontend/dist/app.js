@@ -914,6 +914,11 @@
     showWakeStatus(st);
   });
 
+  document.getElementById("quit-btn").addEventListener("click", () => {
+    menu.hidden = true;
+    App().Quit();
+  });
+
   async function initWake() {
     try {
       wakeOn = await App().WakeEnabled();

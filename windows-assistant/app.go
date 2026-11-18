@@ -49,13 +49,21 @@ func (a *App) startup(ctx context.Context) {
 	}
 }
 
-// showWindow — поднять окно поверх остальных и развернуть, если было свёрнуто.
+// showWindow — вернуть окно: развернуть, показать и поднять поверх остальных.
+// Порядок важен: свёрнутое окно WindowShow сам по себе наверх не вытаскивает.
 func (a *App) showWindow() {
 	if a.ctx == nil {
 		return
 	}
-	runtime.WindowShow(a.ctx)
 	runtime.WindowUnminimise(a.ctx)
+	runtime.WindowShow(a.ctx)
+	runtime.WindowSetAlwaysOnTop(a.ctx, true)
+	go func() {
+		time.Sleep(250 * time.Millisecond)
+		if a.ctx != nil {
+			runtime.WindowSetAlwaysOnTop(a.ctx, false)
+		}
+	}()
 }
 
 // HotkeyWorks — удалось ли занять Ctrl+Shift+Пробел (могла забрать другая программа).
@@ -82,13 +90,22 @@ func (a *App) onFileDrop(x, y int, paths []string) {
 	runtime.EventsEmit(a.ctx, "files-dropped", paths)
 }
 
-// beforeClose: крестик сворачивает окно, а не закрывает Изи — чтобы не терять «Привет, Изи» в фоне
-// (когда он появится) и историю разговора.
+// beforeClose: крестик сворачивает Изи в фон, чтобы он продолжал слушать «Привет, Изи».
+//
+// Но прятать окно можно только когда есть чем его вернуть. Значка в трее у нас нет,
+// поэтому если горячая клавиша не занялась (её мог забрать кто-то другой) и фраза
+// не слушается — спрятанная программа превращается в ловушку: окна нет, повторный
+// запуск только будит тот же невидимый процесс, и остаётся диспетчер задач.
+// В этом случае крестик честно закрывает Изи.
 func (a *App) beforeClose(ctx context.Context) bool {
 	a.mu.Lock()
 	quitting := a.quitting
+	hotkey := a.hotkeyOK
 	a.mu.Unlock()
 	if quitting {
+		return false
+	}
+	if !hotkey && a.WakeStatus() != "ready" {
 		return false
 	}
 	runtime.WindowHide(ctx)
@@ -99,11 +116,7 @@ func (a *App) shutdown(ctx context.Context) {}
 
 // secondInstance: программу запустили ещё раз — просто показываем окно.
 func (a *App) secondInstance(data options.SecondInstanceData) {
-	if a.ctx == nil {
-		return
-	}
-	runtime.WindowShow(a.ctx)
-	runtime.WindowUnminimise(a.ctx)
+	a.showWindow()
 }
 
 func (a *App) Quit() {
