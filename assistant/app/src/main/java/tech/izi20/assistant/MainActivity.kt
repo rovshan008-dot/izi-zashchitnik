@@ -704,7 +704,7 @@ class MainActivity : ComponentActivity() {
                 val uri = withContext(Dispatchers.IO) { Photos.latest(this@MainActivity, video) }
                 if (uri == null) { say("Не нашёл ${if (video) "видео" else "фото"} в галерее"); return@launch }
                 val ok = withContext(Dispatchers.IO) { DropApi.sendFile(this@MainActivity, tok, uri) }
-                say(if (ok) "Отправил на компьютер. Открой izi20.tech/drop" else "Не получилось отправить")
+                say(if (ok) "Отправил на компьютер — Изи там уже показал" else "Не получилось отправить")
             }
             return true
         }
@@ -718,7 +718,7 @@ class MainActivity : ComponentActivity() {
         phase = Phase.Thinking
         lifecycleScope.launch {
             val ok = withContext(Dispatchers.IO) { DropApi.sendText(tok, payload, link) }
-            say(if (ok) "Отправил на компьютер. Открой izi20.tech/drop" else "Не получилось отправить")
+            say(if (ok) "Отправил на компьютер — Изи там уже показал" else "Не получилось отправить")
         }
         return true
     }
@@ -945,9 +945,10 @@ class MainActivity : ComponentActivity() {
                                 menu = false
                                 android.app.AlertDialog.Builder(this@MainActivity)
                                     .setTitle("Телефон ↔ Компьютер")
-                                    .setMessage("На компьютере открой izi20.tech/drop и войди тем же кодом из /web.\n\n" +
+                                    .setMessage("На компьютере поставь Изи для Windows и войди тем же кодом из /web.\n" +
+                                        "Без программы можно через izi20.tech/drop в браузере.\n\n" +
                                         "С телефона: «Поделиться → Изи → На компьютер», или скажи «отправь это на комп».\n" +
-                                        "С компьютера перетащи файл — придёт сюда.")
+                                        "С компьютера перетащи файл в окно Изи — придёт сюда.")
                                     .setPositiveButton("Понятно", null)
                                     .show()
                             },

@@ -56,15 +56,38 @@ class ShareActivity : Activity() {
     }
 
     private fun toPc(token: String, uris: List<Uri>, text: String, isLink: Boolean) {
+        if (uris.isEmpty()) {
+            Toast.makeText(this, "Отправляю на компьютер…", Toast.LENGTH_SHORT).show()
+            ui.launch {
+                val ok = withContext(Dispatchers.IO) { DropApi.sendText(token, text, isLink) }
+                Toast.makeText(this@ShareActivity,
+                    if (ok) "Готово — Изи на компьютере уже показал" else "Не вышло, попробуй ещё раз",
+                    Toast.LENGTH_LONG).show()
+                finish()
+            }
+            return
+        }
+        // файлы идут с полосой в шторке: видео на полсотни мегабайт уходит долго
+        val label = if (uris.size > 1) "Отправляю ${uris.size} файлов" else "Отправляю на компьютер"
+        val bar = SendProgress(applicationContext, label)
+        bar.start()
         Toast.makeText(this, "Отправляю на компьютер…", Toast.LENGTH_SHORT).show()
         ui.launch {
             val ok = withContext(Dispatchers.IO) {
-                if (uris.isNotEmpty()) uris.all { DropApi.sendFile(this@ShareActivity, token, it) }
-                else DropApi.sendText(token, text, isLink)
+                val totalAll = uris.sumOf { DropApi.sizeOf(this@ShareActivity, it) }
+                var sentBefore = 0L
+                var all = true
+                for (u in uris) {
+                    val one = DropApi.sizeOf(this@ShareActivity, u)
+                    val okOne = DropApi.sendFile(this@ShareActivity, token, u) { done, _ ->
+                        bar.update(sentBefore + done, totalAll)
+                    }
+                    if (!okOne) all = false
+                    sentBefore += one
+                }
+                all
             }
-            Toast.makeText(this@ShareActivity,
-                if (ok) "Готово — смотри на izi20.tech/drop на компьютере" else "Не вышло, попробуй ещё раз",
-                Toast.LENGTH_LONG).show()
+            bar.finish(ok)
             finish()
         }
     }

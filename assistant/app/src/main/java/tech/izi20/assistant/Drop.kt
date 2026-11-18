@@ -41,11 +41,27 @@ object DropApi {
         ok(c)
     } catch (e: Exception) { false }
 
-    /** Отправить файл (фото, видео, документ) на компьютер. */
-    fun sendFile(ctx: Context, token: String, uri: android.net.Uri): Boolean = try {
+    /** Размер файла, чтобы показать «сколько из скольки». 0 — не удалось узнать. */
+    fun sizeOf(ctx: Context, uri: android.net.Uri): Long = try {
+        ctx.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)?.use { cur ->
+            if (cur.moveToFirst() && !cur.isNull(0)) cur.getLong(0) else 0L
+        } ?: 0L
+    } catch (e: Exception) { 0L }
+
+    /**
+     * Отправить файл (фото, видео, документ) на компьютер.
+     * onProgress зовётся по мере отдачи байтов, не чаще раза в 150 мс — для полосы на экране.
+     */
+    fun sendFile(
+        ctx: Context,
+        token: String,
+        uri: android.net.Uri,
+        onProgress: ((done: Long, total: Long) -> Unit)? = null,
+    ): Boolean = try {
         val cr = ctx.contentResolver
         val mime = cr.getType(uri) ?: "application/octet-stream"
         val name = queryName(ctx, uri) ?: ("file_" + System.currentTimeMillis())
+        val total = sizeOf(ctx, uri)
         val boundary = "----izi${System.currentTimeMillis()}"
         val c = open("/chat/drop/send", 120_000)
         c.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
@@ -55,7 +71,24 @@ object DropApi {
             field("token", token); field("to", "pc"); field("kind", "file")
             out.write(("--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"$name\"\r\n" +
                 "Content-Type: $mime\r\n\r\n").toByteArray(Charsets.UTF_8))
-            cr.openInputStream(uri)?.use { it.copyTo(out) }
+            cr.openInputStream(uri)?.use { input ->
+                if (onProgress == null) {
+                    input.copyTo(out)
+                } else {
+                    val buf = ByteArray(64 * 1024)
+                    var done = 0L
+                    var lastTick = 0L
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n <= 0) break
+                        out.write(buf, 0, n)
+                        done += n
+                        val now = System.currentTimeMillis()
+                        if (now - lastTick >= 150) { lastTick = now; onProgress(done, total) }
+                    }
+                    onProgress(done, total)
+                }
+            }
             out.write("\r\n--$boundary--\r\n".toByteArray())
         }
         ok(c)
